@@ -1,5 +1,6 @@
 %{
-#include "ass3_15cs10005.tab.h"
+#include "ass4_15cs10005_translator.h"
+#include "ass4_15cs10005.tab.h"
 #include <stdlib.h>
 %}
 
@@ -19,7 +20,7 @@ exponent-part           e{sign}?{digit-sequence}|E{sign}?{digit-sequence}
 sign                    \+|\-
 digit-sequence          {digit}+
 character-constant      \'{c-char-sequence}\'
-c-char-sequence         {c-char}+
+c-char-sequence         {c-char}
 c-char                  [^'\\\n]|{escape-sequence}
 escape-sequence         \\\'|\\\"|\\\?|\\\\|\\a|\\b|\\f|\\n|\\r|\\t|\\v
 ds                      \/\/
@@ -77,11 +78,11 @@ Matrix { return MATRIX; }
 \.\' { return TRANSPOSE; }
 
 {single-punctuator} { return *yytext; }
-{identifier}            {   yylval.string_val = yytext; return IDENTIFIER; }
+{identifier}            {   yylval.id_type = new string(yytext); return IDENTIFIER; }
 {integer-constant}      {   yylval.int_val = atoi(yytext);  return INT_CONSTANT;   }
 {floating-constant}     {   yylval.double_val = atof(yytext);   return DOUBLE_CONSTANT; }
-{character-constant}    {   yylval.string_val = yytext; return CHAR_CONSTANT; }
-{string-literal}        {   yylval.string_val = yytext; return STRING_LITERAL;  }
+{character-constant}    {   yylval.char_val = *yytext; return CHAR_CONSTANT; }
+{string-literal}        {   yylval.string_val = new string(yytext); return STRING_LITERAL;  }
 {ds}            { BEGIN(single_lc);    }
 <single_lc>\n     { BEGIN(0);}
 <single_lc>[^\n]*    {}

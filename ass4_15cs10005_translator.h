@@ -2,18 +2,19 @@
 #define __TRANSLATOR_H
 
 #include <iostream>
+#include <vector>
 
 using namespace std;
 
 #define SZ_VOID 0
 #define SZ_FUNC 0
-#define SZ_BOOL 1
+#define SZ_MATRIX 0
 #define SZ_CHAR 1
 #define SZ_PTR 4
 #define SZ_INT 4
 #define SZ_DOUBLE 8
 
-set<string> string_set;
+struct SymbolTableEntry;
 
 enum class Opcode{
     ADD = 1,
@@ -38,26 +39,37 @@ enum class BasicType{
     FUNC
 };
 
-class IdentifierType{
+struct IdentifierType{
     SymbolTableEntry* loc;
     string string_val;
 };
 
-class ExpressionType{
-    List *truelist, *falselist;
-    SymbolTableEntry* loc;
-    UnionType type;
-    bool is_ptr, is_string;
-    set<string>::iterator string_index;
+struct node{
+    int ind;
+    node* next;
+    node(int _ind);
+    node();
 };
 
-class UnionType{
+struct List{
+    int ind;
+    node* head;
+    node* tail;
+
+    List();
+    List(int);
+
+    void clear();
+    void print();
+};
+
+struct UnionType{
     BasicType type;
     int size;
     UnionType* next;
 
     UnionType();
-    UnionType(BasicType _type);
+    UnionType(BasicType);
 
     void print();
 
@@ -65,13 +77,23 @@ class UnionType{
 
 bool are_equal(UnionType t1, UnionType t2);
 
+struct ExpressionType{
+    List *truelist, *falselist;
+    SymbolTableEntry* loc;
+    UnionType type;
+    bool is_ptr, is_string;
+};
+
 union UnionInitialVal{
     int int_val;
     double double_val;
     char char_val;
+    vector<vector<double> >* Matrix_val;
 };
 
-class SymbolTableEntry{
+struct SymbolTable;
+
+struct SymbolTableEntry{
     string name;
     UnionType type;
     UnionInitialVal init;
@@ -80,19 +102,21 @@ class SymbolTableEntry{
     int offset;
     SymbolTable* nested_table;
 
+    SymbolTableEntry();
     SymbolTableEntry(string);
 
     void print();
 };
 
-class SymbolTable{
-    int offset;
+struct SymbolTable{
     string name;
     vector <SymbolTableEntry*> entries;
     SymbolTable* parent;
+    int offset;
+    int temp_count;
 
-    SymbolTable();
-    SymbolTable(string);
+    SymbolTable(SymbolTable*);
+    SymbolTable(string, SymbolTable*);
 
     void print();
     bool is_present(string name);
@@ -102,5 +126,7 @@ class SymbolTable{
     SymbolTableEntry* lookup(string);
     SymbolTableEntry* gentemp(UnionType);
 };
+
+extern SymbolTable *global_st, *current_st;
 
 #endif

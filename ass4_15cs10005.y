@@ -1,24 +1,33 @@
 %{
 #include <stdio.h>
-#include "y.tab.h"
+#include <string>
+#include "ass4_15cs10005_translator.h"
+
+using namespace std;
+
+extern int yylex(void);
+
 %}
 
 %union {
-    string string_val;
+    string* string_val;
     int int_val;
     double double_val;
-    IdentifierType id_type;
-    ExpressionType exp_type;
-};
+    char char_val;
+    string* id_type;
+    ExpressionType* exp_type;
+    vector<ExpressionType*>* args_type;
+}
 
 %token UNSIGNED BREAK RETURN VOID CASE FLOAT SHORT CHAR FOR SIGNED WHILE GOTO BOOL CONTINUE IF DEFAULT DO INT SWITCH DOUBLE LONG ELSE MATRIX
 %token <string_val> CHAR_CONSTANT STRING_LITERAL
-%token <id_type> IDENTIFIER
+%token <string_val> IDENTIFIER
 %token <int_val> INT_CONSTANT
 %token <double_val> DOUBLE_CONSTANT
 %token ARROW PLUSPLUS MINUSMINUS LEFT_SHIFT RIGHT_SHIFT LESS_EQUAL GREATER_EQUAL IS_EQUAL IS_NOT_EQUAL LOGICAL_AND LOGICAL_OR MUL_EQUAL DIV_EQUAL MOD_EQUAL ADD_EQUAL SUB_EQUAL LEFT_SHIFT_EQUAL RIGHT_SHIFT_EQUAL AND_EQUAL XOR_EQUAL OR_EQUAL TRANSPOSE
 
-%type <exp_type> primary-expression postfix-expression
+%type <exp_type> expression primary-expression postfix-expression
+%type <args_type> argument-expression-list argument-expression-list-opt
 
 %%
 
@@ -28,21 +37,25 @@ prog:
 
 primary-expression:
     IDENTIFIER          {
-                            if(!global_st->is_present($1.string_val))
-                                $$.loc = current_st->lookup($1.string_val);
-                            else
-                                $$.loc = global_st->lookup($1.string_val);
-                            $$.type = $$.loc->type;
-                            $$.truelist = $$.falselist = NULL;
+                            if(global_st->is_present(*$1))
+                                $$->loc = global_st->lookup(*$1);
+                            else if(current_st->is_present(*$1))
+                                $$->loc = current_st->lookup(*$1);
+                            else{
+                                cout<<*$1<<" used before declaration\n";
+                                exit(1);
+                            }
+                            $$->type = $$->loc->type;
+                            $$->truelist = $$->falselist = NULL;
                         }
     | INT_CONSTANT      {
-                            $$.loc = current_st->gentemp(UnionType(BasicType::INT));
-                            $$.type = $$.loc->type;
-                            $$.truelist = $$.falselist = NULL;
+                            $$->loc = current_st->gentemp(UnionType(BasicType::INT));
+                            $$->type = $$->loc->type;
+                            $$->truelist = $$->falselist = NULL;
                             UnionInitialVal init;
                             init.int_val = $1;
-                            current_st->update($$.loc, init);
-                            quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1));
+                            current_st->update($$->loc, init);
+                            quad.emit(QuadEntry(Opcode::ASS, $$->loc->name, $1));
                         }
     | DOUBLE_CONSTANT   {
                             $$.loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
@@ -107,8 +120,10 @@ postfix-expression:
         quad.emit(QuadEntry(Opcode::CALL, $$.loc->name, $1.loc->name, to_string((int)$3->size())));
     }
 }
-| postfix-expression '.' IDENTIFIER { // NOT SUPPORTED }
-| postfix-expression ARROW IDENTIFIER { // NOT SUPPORTED }
+| postfix-expression '.' IDENTIFIER { // NOT SUPPORTED
+    }
+| postfix-expression ARROW IDENTIFIER { // NOT SUPPORTED
+    }
 | postfix-expression PLUSPLUS {
     $$ = $1;
     $$.loc = current_st->gentemp($1.type);
