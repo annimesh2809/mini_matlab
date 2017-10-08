@@ -77,9 +77,11 @@ Matrix { return MATRIX; }
 \.\' { return TRANSPOSE; }
 
 {single-punctuator} { return *yytext; }
-{identifier}    {   return IDENTIFIER; }
-{constant}      {   return CONSTANT;   }
-{string-literal} { return STRING_LITERAL;  }
+{identifier}            {   yylval.string_val = yytext; return IDENTIFIER; }
+{integer-constant}      {   yylval.int_val = atoi(yytext);  return INT_CONSTANT;   }
+{floating-constant}     {   yylval.double_val = atof(yytext);   return DOUBLE_CONSTANT; }
+{character-constant}    {   yylval.string_val = yytext; return CHAR_CONSTANT; }
+{string-literal}        {   yylval.string_val = yytext; return STRING_LITERAL;  }
 {ds}            { BEGIN(single_lc);    }
 <single_lc>\n     { BEGIN(0);}
 <single_lc>[^\n]*    {}

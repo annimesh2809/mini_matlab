@@ -1,33 +1,126 @@
 %{
 #include <stdio.h>
-int yylex(void);
-void yyerror(char* );
+#include "y.tab.h"
 %}
 
+%union {
+    string string_val;
+    int int_val;
+    double double_val;
+    IdentifierType id_type;
+    ExpressionType exp_type;
+};
+
 %token UNSIGNED BREAK RETURN VOID CASE FLOAT SHORT CHAR FOR SIGNED WHILE GOTO BOOL CONTINUE IF DEFAULT DO INT SWITCH DOUBLE LONG ELSE MATRIX
-%token IDENTIFIER CONSTANT STRING_LITERAL SINGLE_PUNCTUATOR
+%token <string_val> CHAR_CONSTANT STRING_LITERAL
+%token <id_type> IDENTIFIER
+%token <int_val> INT_CONSTANT
+%token <double_val> DOUBLE_CONSTANT
 %token ARROW PLUSPLUS MINUSMINUS LEFT_SHIFT RIGHT_SHIFT LESS_EQUAL GREATER_EQUAL IS_EQUAL IS_NOT_EQUAL LOGICAL_AND LOGICAL_OR MUL_EQUAL DIV_EQUAL MOD_EQUAL ADD_EQUAL SUB_EQUAL LEFT_SHIFT_EQUAL RIGHT_SHIFT_EQUAL AND_EQUAL XOR_EQUAL OR_EQUAL TRANSPOSE
 
+%type <exp_type> primary-expression postfix-expression
+
 %%
+
 prog:
   translation-unit { printf("Parsing successful\n"); }
 ;
 
 primary-expression:
-  IDENTIFIER { printf("primary-expression --> Identifier\n"); }
-| CONSTANT   { printf("primary-expression --> Constant\n"); }
-| STRING_LITERAL  { printf("primary-expression --> string-literal\n"); }
-| '(' expression ')'  { printf("primary-expression --> (expression)\n"); }
+    IDENTIFIER          {
+                            if(!global_st->is_present($1.string_val))
+                                $$.loc = current_st->lookup($1.string_val);
+                            else
+                                $$.loc = global_st->lookup($1.string_val);
+                            $$.type = $$.loc->type;
+                            $$.truelist = $$.falselist = NULL;
+                        }
+    | INT_CONSTANT      {
+                            $$.loc = current_st->gentemp(UnionType(BasicType::INT));
+                            $$.type = $$.loc->type;
+                            $$.truelist = $$.falselist = NULL;
+                            UnionInitialVal init;
+                            init.int_val = $1;
+                            current_st->update($$.loc, init);
+                            quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1));
+                        }
+    | DOUBLE_CONSTANT   {
+                            $$.loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
+                            $$.type = $$.loc->type;
+                            $$.truelist = $$.falselist = NULL;
+                            UnionInitialVal init;
+                            init.double_val = $1;
+                            current_st->update($$.loc, init);
+                            quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1));
+                        }
+    | CHAR_CONSTANT     { }
+    | STRING_LITERAL    {
+                            // Not Required
+                            $$.loc = current_st->gentemp(UnionType(BasicType::PTR));
+                            $$.type = UnionType(BasicType::PTR);
+                            $$.type->next = new UnionType(BasicType::CHAR);
+                            $$.is_string = true;
+                            $$.string_index = string_set.insert($1).first;
+                            quad.emit(QuadEntry(Opcode::DAT, $$))
+                        }
+    | '(' expression ')'{
+                            $$ = $2;
+                        }
 ;
 
 postfix-expression:
-  primary-expression { printf("postfix-expression --> primary-expression\n"); }
-| postfix-expression '[' expression ']' { printf("postfix-expression --> [expression]\n"); }
-| postfix-expression '(' argument-expression-list-opt ')'  { printf("postfix-expression --> postfix-expression (argument-expression-list-opt)\n"); }
-| postfix-expression '.' IDENTIFIER { printf("postfix-expression --> postfix-expression . Identifier\n"); }
-| postfix-expression ARROW IDENTIFIER { printf("postfix-expression --> postfix-expression -> IDENTIFIER\n"); }
-| postfix-expression PLUSPLUS { printf("postfix-expression --> postfix-expression ++\n"); }
-| postfix-expression MINUSMINUS { printf("postfix-expression --> postfix-expression --\n"); }
+  primary-expression { $$ = $1; }
+| postfix-expression '[' expression ']' {
+    // DONT KNOW IF CORRECT
+            $$ = $1;
+            if($$.type.type == BasicType::MATRIX){
+                $$.type = UnionType(BasicType::PTR);
+                $$.type.next = new UnionType(BasicType::DOUBLE);
+                $$.loc = current_st->gentemp(UnionType(BasicType::INT));
+                $$.is_ptr = true;
+                quad.emit(QuadEntry(Opcode::MUL, $$.loc->name, $3.loc->name, to_string(SZ_DOUBLE)));
+                quad.emit(QuadEntry(Opcode::ADD, $$.loc->name, $$.loc->name, ))
+            }
+            else if($$.type.type == BasicType::PTR){
+                $$.type = $1.type.next;
+                SymbolTableEntry* temp = current_st->gentemp(UnionType(BasicType::INT));
+                quad.emit(QuadEntry(Opcode::MUL, temp->name, $3.loc->name, to_string($1.type->next->getSize())));
+                quad.emit(QuadEntry(Opcode::ADD, $$.loc->name, $$.loc->name, temp->name));
+            }
+            else{
+                throw_error("Expression is neither a matrix nor a pointer!")
+            }
+        }
+| postfix-expression '(' argument-expression-list-opt ')'  {
+    $$ = $1;
+    if($1.loc->nested_table == NULL || !check_params($1, $3)){
+        cout << "Function call error!";
+        exit(1);
+    }
+    else{
+        for(int i=(int)$3->size()-1; i>=0; i--){
+            quad.emit(QuadEntry(Opcode::PARAM, $3[i]->loc->name));
+        }
+        $$.loc = current_st->gentemp($1.loc->nested_table->entries[0]->type);
+        $$.type = $$.loc->type;
+        $$.truelist = $$.falselist = NULL;
+        quad.emit(QuadEntry(Opcode::CALL, $$.loc->name, $1.loc->name, to_string((int)$3->size())));
+    }
+}
+| postfix-expression '.' IDENTIFIER { // NOT SUPPORTED }
+| postfix-expression ARROW IDENTIFIER { // NOT SUPPORTED }
+| postfix-expression PLUSPLUS {
+    $$ = $1;
+    $$.loc = current_st->gentemp($1.type);
+    quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1.loc->name));
+    quad.emit(QuadEntry(Opcode::ADD, $1.loc->name, $1.loc->name, "1"));
+}
+| postfix-expression MINUSMINUS {
+    $$ = $1;
+    $$.loc = current_st->gentemp($1.type);
+    quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1.loc->name));
+    quad.emit(QuadEntry(Opcode::SUB, $1.loc->name, $1.loc->name, "1"));
+}
 | postfix-expression TRANSPOSE { printf("postfix-expression --> postfix-expression.'\n"); }
 ;
 
