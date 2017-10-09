@@ -1,10 +1,12 @@
 %{
 #include <stdio.h>
+#include <iostream>
 #include <string>
 #include "ass4_15cs10005_translator.h"
 
 using namespace std;
 
+void yyerror(string c){}
 extern int yylex(void);
 
 %}
@@ -20,7 +22,8 @@ extern int yylex(void);
 }
 
 %token UNSIGNED BREAK RETURN VOID CASE FLOAT SHORT CHAR FOR SIGNED WHILE GOTO BOOL CONTINUE IF DEFAULT DO INT SWITCH DOUBLE LONG ELSE MATRIX
-%token <string_val> CHAR_CONSTANT STRING_LITERAL
+%token <char_val> CHAR_CONSTANT
+%token <string_val> STRING_LITERAL
 %token <string_val> IDENTIFIER
 %token <int_val> INT_CONSTANT
 %token <double_val> DOUBLE_CONSTANT
@@ -28,6 +31,8 @@ extern int yylex(void);
 
 %type <exp_type> expression primary-expression postfix-expression
 %type <args_type> argument-expression-list argument-expression-list-opt
+
+%start expression
 
 %%
 
@@ -37,6 +42,7 @@ prog:
 
 primary-expression:
     IDENTIFIER          {
+                            $$ = new ExpressionType();
                             if(global_st->is_present(*$1))
                                 $$->loc = global_st->lookup(*$1);
                             else if(current_st->is_present(*$1))
@@ -49,32 +55,37 @@ primary-expression:
                             $$->truelist = $$->falselist = NULL;
                         }
     | INT_CONSTANT      {
+                            $$ = new ExpressionType();
                             $$->loc = current_st->gentemp(UnionType(BasicType::INT));
                             $$->type = $$->loc->type;
                             $$->truelist = $$->falselist = NULL;
                             UnionInitialVal init;
                             init.int_val = $1;
                             current_st->update($$->loc, init);
-                            quad.emit(QuadEntry(Opcode::ASS, $$->loc->name, $1));
+                            quad.emit(Opcode::ASS, $$->loc->name, to_string($1));
                         }
     | DOUBLE_CONSTANT   {
-                            $$.loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
-                            $$.type = $$.loc->type;
-                            $$.truelist = $$.falselist = NULL;
+                            $$ = new ExpressionType();
+                            $$->loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
+                            $$->type = $$->loc->type;
+                            $$->truelist = $$->falselist = NULL;
                             UnionInitialVal init;
                             init.double_val = $1;
-                            current_st->update($$.loc, init);
-                            quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1));
+                            current_st->update($$->loc, init);
+                            quad.emit(Opcode::ASS, $$->loc->name, to_string($1));
                         }
-    | CHAR_CONSTANT     { }
+    | CHAR_CONSTANT     {
+                            $$ = new ExpressionType();
+                            $$->loc = current_st->gentemp(UnionType(BasicType::CHAR));
+                            $$->type = $$->loc->type;
+                            $$->truelist = $$->falselist = NULL;
+                            UnionInitialVal init;
+                            init.char_val = $1;
+                            current_st->update($$->loc, init);
+                            quad.emit(Opcode::ASS, $$->loc->name, to_string($1));
+                        }
     | STRING_LITERAL    {
-                            // Not Required
-                            $$.loc = current_st->gentemp(UnionType(BasicType::PTR));
-                            $$.type = UnionType(BasicType::PTR);
-                            $$.type->next = new UnionType(BasicType::CHAR);
-                            $$.is_string = true;
-                            $$.string_index = string_set.insert($1).first;
-                            quad.emit(QuadEntry(Opcode::DAT, $$))
+                            // NOT SUPPORTED
                         }
     | '(' expression ')'{
                             $$ = $2;
@@ -83,41 +94,34 @@ primary-expression:
 
 postfix-expression:
   primary-expression { $$ = $1; }
-| postfix-expression '[' expression ']' {
-    // DONT KNOW IF CORRECT
-            $$ = $1;
-            if($$.type.type == BasicType::MATRIX){
-                $$.type = UnionType(BasicType::PTR);
-                $$.type.next = new UnionType(BasicType::DOUBLE);
-                $$.loc = current_st->gentemp(UnionType(BasicType::INT));
-                $$.is_ptr = true;
-                quad.emit(QuadEntry(Opcode::MUL, $$.loc->name, $3.loc->name, to_string(SZ_DOUBLE)));
-                quad.emit(QuadEntry(Opcode::ADD, $$.loc->name, $$.loc->name, ))
-            }
-            else if($$.type.type == BasicType::PTR){
-                $$.type = $1.type.next;
-                SymbolTableEntry* temp = current_st->gentemp(UnionType(BasicType::INT));
-                quad.emit(QuadEntry(Opcode::MUL, temp->name, $3.loc->name, to_string($1.type->next->getSize())));
-                quad.emit(QuadEntry(Opcode::ADD, $$.loc->name, $$.loc->name, temp->name));
-            }
-            else{
-                throw_error("Expression is neither a matrix nor a pointer!")
-            }
-        }
+| postfix-expression '[' expression ']' '[' expression ']'{
+                                            $$ = new ExpressionType(*$1);
+                                            if($1->type.type != BasicType::MATRIX)
+                                                cout<<"Error: trying to access members of non Matrix type\n";
+                                            if($3->type.type != BasicType::INT || $6->type.type != BasicType::INT)
+                                                cout<<"Error: index is not integer\n";
+                                            $$->loc = current_st->gentemp(UnionType(BasicType::INT));
+                                            $$->type = UnionType(BasicType::DOUBLE);
+                                            $$->is_matrix = true;
+                                            $$->parent_matrix = $1->loc;
+                                            quad.emit(Opcode::MUL, $$->loc->name, $3->loc->name, to_string($1->loc->init.Matrix_val.c));
+                                            quad.emit(Opcode::ADD, $$->loc->name, $$->loc->name, $6->loc->name);
+                                            quad.emit(Opcode::MUL, $$->loc->name, $$->loc->name, "8");
+                                        }
 | postfix-expression '(' argument-expression-list-opt ')'  {
     $$ = $1;
-    if($1.loc->nested_table == NULL || !check_params($1, $3)){
-        cout << "Function call error!";
+    if(!check_params($1, $3)){
+        cout << "Function arguments mismatch";
         exit(1);
     }
     else{
         for(int i=(int)$3->size()-1; i>=0; i--){
-            quad.emit(QuadEntry(Opcode::PARAM, $3[i]->loc->name));
+            quad.emit(Opcode::PARAM, $3->operator[](i)->loc->name);
         }
-        $$.loc = current_st->gentemp($1.loc->nested_table->entries[0]->type);
-        $$.type = $$.loc->type;
-        $$.truelist = $$.falselist = NULL;
-        quad.emit(QuadEntry(Opcode::CALL, $$.loc->name, $1.loc->name, to_string((int)$3->size())));
+        $$->loc = current_st->gentemp($1->loc->nested_table->entries[0]->type);
+        $$->type = $$->loc->type;
+        $$->truelist = $$->falselist = NULL;
+        quad.emit(Opcode::CALL, $$->loc->name, $1->loc->name, to_string((int)$3->size()));
     }
 }
 | postfix-expression '.' IDENTIFIER { // NOT SUPPORTED
@@ -125,18 +129,50 @@ postfix-expression:
 | postfix-expression ARROW IDENTIFIER { // NOT SUPPORTED
     }
 | postfix-expression PLUSPLUS {
-    $$ = $1;
-    $$.loc = current_st->gentemp($1.type);
-    quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1.loc->name));
-    quad.emit(QuadEntry(Opcode::ADD, $1.loc->name, $1.loc->name, "1"));
+    $$ = new ExpressionType(*$1);
+    $$->loc = current_st->gentemp($1->type);
+    if($1->is_matrix){
+        quad.emit(Opcode::IND_COPY_R, $$->loc->name, $1->parent_matrix->name, $1->loc->name);
+        SymbolTableEntry* t = current_st->gentemp(UnionType(BasicType::DOUBLE));
+        quad.emit(Opcode::ADD, t->name, $$->loc->name, "1");
+        quad.emit(Opcode::IND_COPY_L, $1->parent_matrix->name, $1->loc->name, t->name);
+    }
+    else{
+        quad.emit(Opcode::ASS, $$->loc->name, $1->loc->name);
+        quad.emit(Opcode::ADD, $1->loc->name, $1->loc->name, "1");
+    }
+    $$->is_matrix = false;
 }
 | postfix-expression MINUSMINUS {
-    $$ = $1;
-    $$.loc = current_st->gentemp($1.type);
-    quad.emit(QuadEntry(Opcode::ASS, $$.loc->name, $1.loc->name));
-    quad.emit(QuadEntry(Opcode::SUB, $1.loc->name, $1.loc->name, "1"));
+    $$ = new ExpressionType(*$1);
+    $$->loc = current_st->gentemp($1->type);
+    if($1->is_matrix){
+        quad.emit(Opcode::IND_COPY_R, $$->loc->name, $1->parent_matrix->name, $1->loc->name);
+        SymbolTableEntry* t = current_st->gentemp(UnionType(BasicType::DOUBLE));
+        quad.emit(Opcode::SUB, t->name, $$->loc->name, "1");
+        quad.emit(Opcode::IND_COPY_L, $1->parent_matrix->name, $1->loc->name, t->name);
+    }
+    else{
+        quad.emit(Opcode::ASS, $$->loc->name, $1->loc->name);
+        quad.emit(Opcode::SUB, $1->loc->name, $1->loc->name, "1");
+    }
+    $$->is_matrix = false;
 }
-| postfix-expression TRANSPOSE { printf("postfix-expression --> postfix-expression.'\n"); }
+| postfix-expression TRANSPOSE {
+    if($1->type.type != BasicType::MATRIX){
+        cout<<"Error: Transpose can be taken of only Matrices\n";
+    }
+    $$ = new ExpressionType(*$1);
+    $$->loc = current_st->gentemp(UnionType(BasicType::MATRIX));
+    $$->loc->size = $1->loc->size;
+    $$->loc->type = $1->loc->type;
+    $$->type = $1->type;
+    $$->loc->init = $1->loc->init;
+    $$->loc->was_initialised = $1->loc->was_initialised;
+    $$->loc->init.Matrix_val.r = $1->loc->init.Matrix_val.c;
+    $$->loc->init.Matrix_val.c = $1->loc->init.Matrix_val.r;
+    quad.emit(Opcode::TRANS, $$->loc->name, $1->loc->name);
+}
 ;
 
 argument-expression-list-opt:

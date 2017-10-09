@@ -1,8 +1,9 @@
 #ifndef __TRANSLATOR_H
 #define __TRANSLATOR_H
 
-#include <iostream>
+#include <fstream>
 #include <vector>
+#include <iostream>
 
 using namespace std;
 
@@ -23,10 +24,11 @@ enum class Opcode{
     DIV,
     MOD,
     ASS,
-    DAT,
     CALL,
     PARAM,
-    TRANS
+    TRANS,
+    IND_COPY_L,
+    IND_COPY_R
 };
 
 enum class BasicType{
@@ -77,18 +79,49 @@ struct UnionType{
 
 bool are_equal(UnionType t1, UnionType t2);
 
+struct QuadEntry{
+    Opcode op;
+    string result, arg1, arg2;
+
+    QuadEntry(Opcode op, string result, string s1, string s2 = "");
+
+    void print(ostream& f);
+};
+
+struct QuadList{
+    int next_instr;
+    int width;
+    vector<QuadEntry> quads;
+
+    void emit(Opcode o, string result, string arg1, string arg2);
+    void emit(Opcode o, string result, string arg1);
+    void emit(string result, string arg1);
+    void emit(Opcode o, string result);
+    void print();
+    void print(ostream& f);
+};
+
 struct ExpressionType{
     List *truelist, *falselist;
     SymbolTableEntry* loc;
     UnionType type;
-    bool is_ptr, is_string;
+    bool is_ptr, is_matrix;
+    SymbolTableEntry* parent_matrix;
+
+    ExpressionType();
+    ExpressionType(ExpressionType& e);
+};
+
+struct MatInit{
+    vector<double>* val;
+    int r, c;
 };
 
 union UnionInitialVal{
     int int_val;
     double double_val;
     char char_val;
-    vector<vector<double> >* Matrix_val;
+    MatInit Matrix_val;
 };
 
 struct SymbolTable;
@@ -97,6 +130,7 @@ struct SymbolTableEntry{
     string name;
     UnionType type;
     UnionInitialVal init;
+    bool is_param;
     bool was_initialised;
     int size;
     int offset;
@@ -115,7 +149,7 @@ struct SymbolTable{
     int offset;
     int temp_count;
 
-    SymbolTable(SymbolTable*);
+    SymbolTable(SymbolTable* p = NULL);
     SymbolTable(string, SymbolTable*);
 
     void print();
@@ -128,5 +162,8 @@ struct SymbolTable{
 };
 
 extern SymbolTable *global_st, *current_st;
+extern QuadList quad;
+
+bool check_params(ExpressionType* fn, vector<ExpressionType*>* args);
 
 #endif

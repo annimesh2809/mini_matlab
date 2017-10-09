@@ -4,6 +4,8 @@
 #include <stdlib.h>
 %}
 
+%option noyywrap
+
 %x                      single_lc multi_lc
 ws                      [\n\t\r\f ]
 keyword                 unsigned|break|return|void|case|float|short|char|for|signed|while|goto|Bool|continue|if|default|do|int|switch|double|long|else|Matrix

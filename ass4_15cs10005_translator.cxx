@@ -7,6 +7,8 @@ SymbolTable *current_st = new SymbolTable();
 node::node() { next = NULL; }
 node::node(int i) { ind = i; next = NULL; }
 
+QuadList quad;
+
 List::List(int _ind){
     head = new node(_ind);
     tail = head;
@@ -69,6 +71,24 @@ void UnionType::print(){
     }
 }
 
+ExpressionType::ExpressionType(){
+    truelist = falselist = NULL;
+    loc = NULL;
+    type = UnionType();
+    is_ptr = is_matrix = false;
+    parent_matrix = NULL;
+}
+
+ExpressionType::ExpressionType(ExpressionType& e){
+    truelist = e.truelist;
+    falselist = e.falselist;
+    loc = e.loc;
+    type = e.type;
+    is_ptr = e.is_ptr;
+    is_matrix = e.is_matrix;
+    parent_matrix = NULL;
+}
+
 SymbolTableEntry::SymbolTableEntry(){
     SymbolTableEntry("");
 }
@@ -80,14 +100,24 @@ SymbolTableEntry::SymbolTableEntry(string n){
     was_initialised = false;
 }
 
-void SymbolTableEntry::print(){
-    printf("%s\t", this->name.c_str());
-    this->type.print();
-    //print initial val
-    printf("\t%d\t%d\t%s", this->size, this->offset, ((this->nested_table==NULL)?("NULL"):(this->nested_table->name.c_str())));
+void print_init_val(UnionInitialVal& init, BasicType b){
+    switch(b){
+        case BasicType::INT: cout<<init.int_val; break;
+        case BasicType::DOUBLE: cout<<init.double_val; break;
+        case BasicType::CHAR: cout<<init.char_val; break;
+        case BasicType::MATRIX: cout<<'{'; for(int i=0;i<init.Matrix_val.val->size()-1;i++) cout<<(init.Matrix_val.val->operator[](i))<<','; cout<<init.Matrix_val.val->operator[](init.Matrix_val.val->size()-1)<<'}'; break;
+    }
 }
 
-SymbolTable::SymbolTable(SymbolTable* p = NULL){
+void SymbolTableEntry::print(){
+    printf("%s\t\t", this->name.c_str());
+    this->type.print();
+    printf("\t\t");
+    print_init_val(this->init, this->type.type);
+    printf("\t\t%d\t\t%d\t\t%s", this->size, this->offset, ((this->nested_table==NULL)?("NULL"):(this->nested_table->name.c_str())));
+}
+
+SymbolTable::SymbolTable(SymbolTable* p){
     name = "";
     parent = p;
     offset = 0;
@@ -103,6 +133,7 @@ SymbolTable::SymbolTable(string s, SymbolTable* p = NULL){
 
 void SymbolTable::print(){
     cout<<this->name<<"\n";
+    cout<<"Name\t\tType\t\tInitial value\t\tSize\t\tOffset\t\tNested table\n";
     for(int i=0;i<entries.size();i++){
         entries[i]->print();
         cout<<"\n";
@@ -148,19 +179,106 @@ SymbolTableEntry* SymbolTable::gentemp(UnionType u){
     return s;
 }
 
+QuadEntry::QuadEntry(Opcode o, string _result, string s1, string s2){
+    op = o;
+    result = _result;
+    arg1 = s1;
+    arg2 = s2;
+}
+
+void QuadEntry::print(ostream& f){
+    switch(op){
+        case Opcode::ADD:
+            f<<result<<"="<<arg1<<"+"<<arg2;
+            break;
+        case Opcode::SUB:
+            f<<result<<"="<<arg1<<"-"<<arg2;
+            break;
+        case Opcode::MUL:
+            f<<result<<"="<<arg1<<"*"<<arg2;
+            break;
+        case Opcode::DIV:
+            f<<result<<"="<<arg1<<"/"<<arg2;
+            break;
+        case Opcode::MOD:
+            f<<result<<"="<<arg1<<"%%"<<arg2;
+            break;
+        case Opcode::ASS:
+            f<<result<<"="<<arg1;
+            break;
+        case Opcode::CALL:
+            f<<result<<" = call "<<arg1<<","<<arg2;
+            break;
+        case Opcode::PARAM:
+            f<<"param "<<result;
+            break;
+        case Opcode::TRANS:
+            f<<result<<"="<<arg1<<".'";
+            break;
+        case Opcode::IND_COPY_L:
+            f<<result<<"["<<arg1<<"]="<<arg2;
+            break;
+        case Opcode::IND_COPY_R:
+            f<<result<<"="<<arg1<<"["<<arg2<<"]";
+            break;
+    }
+}
+
+void QuadList::emit(Opcode o, string result, string s1, string s2){
+    this->quads.push_back(QuadEntry(o, result, s1, s2));
+    this->next_instr++;
+}
+
+void QuadList::emit(Opcode o, string result, string s1){
+    emit(o, result, s1, "");
+}
+
+void QuadList::emit(string result, string s1){
+    emit(Opcode::ASS, result, s1);
+}
+
+void QuadList::emit(Opcode o, string result){
+    emit(o, result, "");
+}
+
+void QuadList::print(ostream& f = cout){
+    for(int i=0;i<quads.size();i++){
+        quads[i].print(f);
+        cout<<"\n";
+    }
+}
+
+bool check_params(ExpressionType* fn, vector<ExpressionType*>* args){
+    if(fn->loc->nested_table == NULL){
+        printf("%s cannot be called as it is not a function\n", fn->loc->name);
+        exit(1);
+    }
+    vector<SymbolTableEntry*> &fargs = fn->loc->nested_table->entries;
+    vector<SymbolTableEntry*>::iterator it1 = fargs.begin();
+    vector<ExpressionType*>::iterator it2 = args->begin();
+    while(it1!=fargs.end() && it2!=args->end() && (*it1)->is_param){
+        if((*it2)->loc->type.type != (*it1)->type.type)
+            return false;
+        it1++;
+        it2++;
+    }
+    if((*it1)->is_param || it2 != args->end())
+        return false;
+    return true;
+}
+
 int main(int argc, char const *argv[]) {
-    yyparse();
-    SymbolTable gst("Global symbol table");
-    gst.lookup("aa");
-    SymbolTableEntry* t = gst.gentemp(UnionType(BasicType::DOUBLE));
-    gst.gentemp(UnionType(BasicType::INT));
-    gst.lookup("aa");
-    gst.print();
+    SymbolTableEntry* a = current_st->lookup("a");
+    current_st->update(a, UnionType(BasicType::MATRIX), 32 + 8);
     UnionInitialVal u;
-    cout<<t->init.double_val<<"\n";
-    u.double_val = 1.2;
-    gst.update(t,u);
-    gst.print();
-    cout<<t->init.double_val<<"\n";
+    u.Matrix_val.val = new vector<double>({1.0, 2.0, 2.0, 1.0});
+    u.Matrix_val.r = 2;
+    u.Matrix_val.c = 3;
+    current_st->update(a, u);
+    yyparse();
+    cout<<"\n******* SYMBOL TABLE ********\n";
+    current_st->print();
+    cout<<"\n******** QUAD TABLE *********\n";
+    quad.print(cout);
     return 0;
 }
