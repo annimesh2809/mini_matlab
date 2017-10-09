@@ -28,11 +28,20 @@ enum class Opcode{
     PARAM,
     TRANS,
     IND_COPY_L,
-    IND_COPY_R
+    IND_COPY_R,
+    ADDRESS,
+    DEREF_L,
+    DEREF_R,
+    U_MINUS,
+    CONV_BOOL,
+    CONV_CHAR,
+    CONV_INT,
+    CONV_DOUBLE
 };
 
 enum class BasicType{
-    CHAR = 0,
+    BOOL = 0,
+    CHAR,
     INT,
     DOUBLE,
     MATRIX,
@@ -165,5 +174,5 @@ extern SymbolTable *global_st, *current_st;
 extern QuadList quad;
 
 bool check_params(ExpressionType* fn, vector<ExpressionType*>* args);
-
+bool typecheck(ExpressionType*, ExpressionType*, bool b1 = false, bool b2 = false);
 #endif

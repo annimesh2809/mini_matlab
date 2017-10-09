@@ -1,5 +1,6 @@
 #include "ass4_15cs10005_translator.h"
 #include "ass4_15cs10005.tab.h"
+#include <assert.h>
 
 SymbolTable *global_st = new SymbolTable();
 SymbolTable *current_st = new SymbolTable();
@@ -86,7 +87,7 @@ ExpressionType::ExpressionType(ExpressionType& e){
     type = e.type;
     is_ptr = e.is_ptr;
     is_matrix = e.is_matrix;
-    parent_matrix = NULL;
+    parent_matrix = e.parent_matrix;
 }
 
 SymbolTableEntry::SymbolTableEntry(){
@@ -113,7 +114,7 @@ void SymbolTableEntry::print(){
     printf("%s\t\t", this->name.c_str());
     this->type.print();
     printf("\t\t");
-    print_init_val(this->init, this->type.type);
+//    print_init_val(this->init, this->type.type);cout<<endl;
     printf("\t\t%d\t\t%d\t\t%s", this->size, this->offset, ((this->nested_table==NULL)?("NULL"):(this->nested_table->name.c_str())));
 }
 
@@ -136,7 +137,7 @@ void SymbolTable::print(){
     cout<<"Name\t\tType\t\tInitial value\t\tSize\t\tOffset\t\tNested table\n";
     for(int i=0;i<entries.size();i++){
         entries[i]->print();
-        cout<<"\n";
+        cout<<endl;
     }
 }
 
@@ -201,13 +202,13 @@ void QuadEntry::print(ostream& f){
             f<<result<<"="<<arg1<<"/"<<arg2;
             break;
         case Opcode::MOD:
-            f<<result<<"="<<arg1<<"%%"<<arg2;
+            f<<result<<"="<<arg1<<"%"<<arg2;
             break;
         case Opcode::ASS:
             f<<result<<"="<<arg1;
             break;
         case Opcode::CALL:
-            f<<result<<" = call "<<arg1<<","<<arg2;
+            f<<result<<"=call "<<arg1<<","<<arg2;
             break;
         case Opcode::PARAM:
             f<<"param "<<result;
@@ -220,6 +221,30 @@ void QuadEntry::print(ostream& f){
             break;
         case Opcode::IND_COPY_R:
             f<<result<<"="<<arg1<<"["<<arg2<<"]";
+            break;
+        case Opcode::ADDRESS:
+            f<<result<<"=&"<<arg1;
+            break;
+        case Opcode::DEREF_L:
+            f<<"*"<<result<<"="<<arg1;
+            break;
+        case Opcode::DEREF_R:
+            f<<result<<"=*"<<arg1;
+            break;
+        case Opcode::U_MINUS:
+            f<<result<<"=-"<<arg1;
+            break;
+        case Opcode::CONV_BOOL:
+            f<<result<<"=(bool)"<<arg1;
+            break;
+        case Opcode::CONV_CHAR:
+            f<<result<<"=(char)"<<arg1;
+            break;
+        case Opcode::CONV_INT:
+            f<<result<<"=(int)"<<arg1;
+            break;
+        case Opcode::CONV_DOUBLE:
+            f<<result<<"=(double)"<<arg1;
             break;
     }
 }
@@ -267,6 +292,85 @@ bool check_params(ExpressionType* fn, vector<ExpressionType*>* args){
     return true;
 }
 
+BasicType max(BasicType b1, BasicType b2){
+    return (BasicType)max((int)b1, (int)b2);
+}
+
+void conv2bool(ExpressionType* e){
+
+}
+
+void conv2char(ExpressionType* e){
+    string t = e->loc->name;
+    e->loc = current_st->gentemp(UnionType(BasicType::CHAR));
+    e->type = e->loc->type;
+    quad.emit(Opcode::CONV_CHAR, e->loc->name, t);
+}
+
+void conv2int(ExpressionType* e){
+    string t = e->loc->name;
+    e->loc = current_st->gentemp(UnionType(BasicType::INT));
+    e->type = e->loc->type;
+    quad.emit(Opcode::CONV_INT, e->loc->name, t);
+}
+
+void conv2double(ExpressionType* e){
+    string t = e->loc->name;
+    e->loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
+    e->type = e->loc->type;
+    quad.emit(Opcode::CONV_DOUBLE, e->loc->name, t);
+}
+
+void conv(BasicType b, ExpressionType* t){
+    if(b == t->type.type)
+        return;
+    switch(b){
+        case BasicType::BOOL:{
+            conv2bool(t); break;
+        }
+        case BasicType::CHAR:{
+            conv2char(t); break;
+        }
+        case BasicType::INT:{
+            conv2int(t); break;
+        }
+        case BasicType::DOUBLE:{
+            conv2double(t); break;
+        }
+    }
+}
+
+bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
+    if((int)t1->type.type > 4 || (int)t2->type.type > 4) return false;
+    if(t1->type.type == t2->type.type){
+        if(t1->type.type == BasicType::MATRIX){
+            if(mat_mul){
+                if(t1->loc->init.Matrix_val.c == t2->loc->init.Matrix_val.r){
+                    return true;
+                }
+                cout<<"Error: Multiplication of incompatible matrices\n";
+                return false;
+            }
+            if(t1->loc->init.Matrix_val.r == t2->loc->init.Matrix_val.r && t1->loc->init.Matrix_val.c == t2->loc->init.Matrix_val.c){
+                return true;
+            }
+            return false;
+        }
+        return true;
+    }
+    if(t1->type.type == BasicType::MATRIX || t2->type.type == BasicType::MATRIX)
+        return false;
+    if(rtl){
+        if((int)t2->type.type > (int)t1->type.type)
+            conv(t1->type.type,t2);
+        return true;
+    }
+    BasicType t = max(t1->type.type, t2->type.type);
+    conv(t,t1);
+    conv(t,t2);
+    return true;
+}
+
 int main(int argc, char const *argv[]) {
     SymbolTableEntry* a = current_st->lookup("a");
     current_st->update(a, UnionType(BasicType::MATRIX), 32 + 8);
@@ -275,6 +379,8 @@ int main(int argc, char const *argv[]) {
     u.Matrix_val.r = 2;
     u.Matrix_val.c = 3;
     current_st->update(a, u);
+    SymbolTableEntry* b = current_st->lookup("b");
+    current_st->update(b, UnionType(BasicType::INT), 4);
     yyparse();
     cout<<"\n******* SYMBOL TABLE ********\n";
     current_st->print();

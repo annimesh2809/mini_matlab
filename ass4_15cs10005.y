@@ -29,7 +29,9 @@ extern int yylex(void);
 %token <double_val> DOUBLE_CONSTANT
 %token ARROW PLUSPLUS MINUSMINUS LEFT_SHIFT RIGHT_SHIFT LESS_EQUAL GREATER_EQUAL IS_EQUAL IS_NOT_EQUAL LOGICAL_AND LOGICAL_OR MUL_EQUAL DIV_EQUAL MOD_EQUAL ADD_EQUAL SUB_EQUAL LEFT_SHIFT_EQUAL RIGHT_SHIFT_EQUAL AND_EQUAL XOR_EQUAL OR_EQUAL TRANSPOSE
 
-%type <exp_type> expression primary-expression postfix-expression
+%type <char_val> unary-operator
+%type <exp_type> expression primary-expression postfix-expression unary-expression assigment-expression assigment-expression-opt
+                cast-expression multiplicative-expression additive-expression
 %type <args_type> argument-expression-list argument-expression-list-opt
 
 %start expression
@@ -171,6 +173,7 @@ postfix-expression:
     $$->loc->was_initialised = $1->loc->was_initialised;
     $$->loc->init.Matrix_val.r = $1->loc->init.Matrix_val.c;
     $$->loc->init.Matrix_val.c = $1->loc->init.Matrix_val.r;
+    current_st->update($$->loc, $$->type, $$->loc->size);
     quad.emit(Opcode::TRANS, $$->loc->name, $1->loc->name);
 }
 ;
@@ -181,39 +184,203 @@ argument-expression-list-opt:
 ;
 
 argument-expression-list:
-  assigment-expression { $$ = new vector<ExpressionType*>(); $$.push_back($1); }
-| argument-expression-list ',' assigment-expression { $$ = $1; $$.push_back($3); }
+  assigment-expression { $$ = new vector<ExpressionType*>(); $$->push_back($1); }
+| argument-expression-list ',' assigment-expression { $$ = $1; $$->push_back($3); }
 ;
 
 unary-expression:
   postfix-expression { $$ = new ExpressionType(*$1); }
-| PLUSPLUS unary-expression {  }
-| MINUSMINUS unary-expression { printf("unary-expression --> -- unary-expression\n"); }
-| unary-operator cast-expression { printf("unary-expression --> unary-expression cast-expression\n"); }
+| PLUSPLUS unary-expression {
+    $$ = new ExpressionType(*$2);
+    $$->loc = current_st->gentemp($2->type);
+    $$->type = $$->loc->type;
+
+    if($$->is_matrix){
+        quad.emit(Opcode::IND_COPY_R, $$->loc->name, $$->parent_matrix->name, $2->loc->name);
+        quad.emit(Opcode::ADD, $$->loc->name, $$->loc->name, "1");
+        quad.emit(Opcode::IND_COPY_L, $$->parent_matrix->name, $2->loc->name, $$->loc->name);
+    }
+    else{
+        quad.emit(Opcode::ADD, $2->loc->name, $2->loc->name, "1");
+        quad.emit(Opcode::ASS, $$->loc->name, $2->loc->name);
+    }
+    $$->is_matrix = false;
+}
+| MINUSMINUS unary-expression {
+    $$ = new ExpressionType(*$2);
+    $$->loc = current_st->gentemp($2->type);
+    $$->type = $$->loc->type;
+
+    if($$->is_matrix){
+        quad.emit(Opcode::IND_COPY_R, $$->loc->name, $$->parent_matrix->name, $2->loc->name);
+        quad.emit(Opcode::SUB, $$->loc->name, $$->loc->name, "1");
+        quad.emit(Opcode::IND_COPY_L, $$->parent_matrix->name, $2->loc->name, $$->loc->name);
+    }
+    else{
+        quad.emit(Opcode::SUB, $2->loc->name, $2->loc->name, "1");
+        quad.emit(Opcode::ASS, $$->loc->name, $2->loc->name);
+    }
+    $$->is_matrix = false;
+}
+| unary-operator cast-expression {
+    $$ = new ExpressionType(*$2);
+    switch($1){
+        case '&':{
+            UnionType u(BasicType::PTR);
+            u.next = &($2->type);
+            $$->loc = current_st->gentemp(u);
+            $$->type = $$->loc->type;
+            if($2->is_matrix)
+                quad.emit(Opcode::ADD, $$->loc->name, $2->parent_matrix->name, $2->loc->name);
+            else
+                quad.emit(Opcode::ADDRESS, $$->loc->name, $2->loc->name);
+            break;
+        }
+        case '*':{
+            if($2->type.next == NULL){
+                cout<<"Error: non-pointer objects cannot be dereferenced!\n";
+                exit(1);
+            }
+            $$->type = *($2->type.next);
+            $$->is_ptr = true;
+            break;
+        }
+        case '+':{
+            if($2->is_matrix){
+                $$->is_matrix = false;
+                $$->loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
+                $$->type = $$->loc->type;
+                quad.emit(Opcode::IND_COPY_R, $$->loc->name, $2->parent_matrix->name, $2->loc->name);
+            }
+            else if($2->is_ptr){
+                $$->is_ptr = false;
+                $$->loc = current_st->gentemp($2->type);
+                $$->type = $$->loc->type;
+                quad.emit(Opcode::DEREF_R, $$->loc->name, $2->loc->name);
+            }
+            break;
+        }
+        case '-':{
+            if($2->is_matrix){
+                $$->is_matrix = false;
+                $$->loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
+                $$->type = $$->loc->type;
+                quad.emit(Opcode::IND_COPY_R, $$->loc->name, $2->parent_matrix->name, $2->loc->name);
+                quad.emit(Opcode::U_MINUS, $$->loc->name, $$->loc->name);
+            }
+            else if($2->is_ptr){
+                $$->is_ptr = false;
+                $$->loc = current_st->gentemp($2->type);
+                $$->type = $$->loc->type;
+                quad.emit(Opcode::DEREF_R, $$->loc->name, $2->loc->name);
+                quad.emit(Opcode::U_MINUS, $$->loc->name, $$->loc->name);
+            }
+            else{
+                quad.emit(Opcode::U_MINUS, $$->loc->name, $2->loc->name);
+            }
+            break;
+        }
+    }
+}
 ;
 
 unary-operator:
-  '&' { printf("unary-operator --> &\n"); }
-| '*' { printf("unary-operator --> *\n"); }
-| '+' { printf("unary-operator --> +\n"); }
-| '-' { printf("unary-operator --> -\n"); }
+  '&' {
+    $$ = '&';
+}
+| '*' {
+    $$ = '*';
+}
+| '+' {
+    $$ = '+';
+}
+| '-' {
+    $$ = '-';
+}
 ;
 
 cast-expression:
-  unary-expression { printf("cast-expression --> unary-expression\n"); }
+    unary-expression {
+        $$ = new ExpressionType(*$1);
+        if($1->is_matrix){
+            $$->is_matrix = false;
+            $$->loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
+            $$->type = $$->loc->type;
+            quad.emit(Opcode::IND_COPY_R, $$->loc->name, $1->parent_matrix->name, $1->loc->name);
+        }
+        else if($1->is_ptr){
+            $$->is_ptr = false;
+            $$->loc = current_st->gentemp($1->type);
+            $$->type = $$->loc->type;
+            quad.emit(Opcode::DEREF_R, $$->loc->name, $1->loc->name);
+        }
+    }
 ;
 
 multiplicative-expression:
-  cast-expression { printf("multiplicative-expression --> cast-expression\n"); }
-| multiplicative-expression '*' cast-expression { printf("multiplicative-expression --> multiplicative-expression * cast-expression\n"); }
-| multiplicative-expression '/' cast-expression { printf("multiplicative-expression --> multiplicative-expression / cast-expression\n"); }
-| multiplicative-expression '%' cast-expression { printf("multiplicative-expression --> multiplicative-expression %% cast-expression\n"); }
+  cast-expression {
+      $$ = new ExpressionType(*$1);
+  }
+| multiplicative-expression '*' cast-expression {
+    $$ = new ExpressionType();
+    if(!typecheck($1,$3,true)){
+        cout<<"Error: implicit type conversion failed\n";
+        exit(1);
+    }
+    $$->loc = current_st->gentemp($1->type);
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::MUL, $$->loc->name, $1->loc->name, $3->loc->name);
+
+}
+| multiplicative-expression '/' cast-expression {
+    $$ = new ExpressionType();
+    if(!typecheck($1,$3)){
+        cout<<"Error: implicit type conversion failed in /\n";
+        exit(1);
+    }
+    if($1->type.type == BasicType::MATRIX || $3->type.type == BasicType::MATRIX){
+        cout<<"Error: Matrix division is prohibited\n";
+        exit(1);
+    }
+    $$->loc = current_st->gentemp($1->type);
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::DIV, $$->loc->name, $1->loc->name, $3->loc->name);
+}
+| multiplicative-expression '%' cast-expression {
+    $$ = new ExpressionType();
+    if((int)$1->type.type > 2 || (int)$3->type.type > 2){
+        cout<<"Error: modulus can be taken of integers only\n";
+        exit(1);
+    }
+    typecheck($1,$3);
+    $$->loc = current_st->gentemp($1->type);
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::MOD, $$->loc->name, $1->loc->name, $3->loc->name);
+}
 ;
 
 additive-expression:
-  multiplicative-expression { printf("additive-expression --> multiplicative-expression\n"); }
-| additive-expression '+' multiplicative-expression { printf("additive-expression --> additive-expression + multiplicative-expression\n"); }
-| additive-expression '-' multiplicative-expression { printf("additive-expression --> additive-expression - multiplicative-expression\n"); }
+  multiplicative-expression { $$ = $1; }
+| additive-expression '+' multiplicative-expression {
+    $$ = new ExpressionType();
+    if(!typecheck($1,$3)){
+        cout<<"Error: Implicit type conversion failed in +\n";
+        exit(1);
+    }
+    $$->loc = current_st->gentemp($1->type);
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::ADD, $$->loc->name, $1->loc->name, $3->loc->name);
+}
+| additive-expression '-' multiplicative-expression {
+    $$ = new ExpressionType();
+    if(!typecheck($1,$3)){
+        cout<<"Error: Implicit type conversion failed in -\n";
+        exit(1);
+    }
+    $$->loc = current_st->gentemp($1->type);
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::SUB, $$->loc->name, $1->loc->name, $3->loc->name);
+}
 ;
 
 shift-expression:
@@ -273,16 +440,6 @@ assigment-expression:
 
 assignment-operator:
   '='    { printf("assignment-operator --> =\n"); }
-| MUL_EQUAL  { printf("assignment-operator --> *=\n"); }
-| DIV_EQUAL  { printf("assignment-operator --> /=\n"); }
-| MOD_EQUAL  { printf("assignment-operator --> %%=\n"); }
-| ADD_EQUAL  { printf("assignment-operator --> +=\n"); }
-| SUB_EQUAL  { printf("assignment-operator --> -=\n"); }
-| LEFT_SHIFT_EQUAL  { printf("assignment-operator --> <<=\n"); }
-| RIGHT_SHIFT_EQUAL  { printf("assignment-operator --> >>=\n"); }
-| AND_EQUAL  { printf("assignment-operator --> &=\n"); }
-| XOR_EQUAL  { printf("assignment-operator --> ^=\n"); }
-| OR_EQUAL  { printf("assignment-operator --> |=\n"); }
 ;
 
 expression:
