@@ -176,18 +176,18 @@ postfix-expression:
 ;
 
 argument-expression-list-opt:
-  argument-expression-list { printf("argument-expression-list-opt --> argument-expression-list\n"); }
-| %empty { printf("argument-expression-list-opt --> %%empty\n"); }
+  argument-expression-list { $$ = $1; }
+| %empty { $$ = new vector<ExpressionType*>(); }
 ;
 
 argument-expression-list:
-  assigment-expression { printf("argument-expression-list --> assigment-expression\n"); }
-| argument-expression-list ',' assigment-expression { printf("argument-expression-list --> argument-expression-list, assigment-expression\n"); }
+  assigment-expression { $$ = new vector<ExpressionType*>(); $$.push_back($1); }
+| argument-expression-list ',' assigment-expression { $$ = $1; $$.push_back($3); }
 ;
 
 unary-expression:
-  postfix-expression { printf("unary-expression --> postfix-expression\n"); }
-| PLUSPLUS unary-expression { printf("unary-expression --> ++ unary-expression\n"); }
+  postfix-expression { $$ = new ExpressionType(*$1); }
+| PLUSPLUS unary-expression {  }
 | MINUSMINUS unary-expression { printf("unary-expression --> -- unary-expression\n"); }
 | unary-operator cast-expression { printf("unary-expression --> unary-expression cast-expression\n"); }
 ;
