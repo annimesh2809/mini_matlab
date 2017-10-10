@@ -416,8 +416,7 @@ bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
     }
     if((int)t1->type.type > 4 || (int)t2->type.type > 4) return false;
     if(rtl){
-        if((int)t2->type.type > (int)t1->type.type)
-            conv(t1->type.type,t2);
+        conv(t1->type.type,t2);
         return true;
     }
     BasicType t = max(t1->type.type, t2->type.type);

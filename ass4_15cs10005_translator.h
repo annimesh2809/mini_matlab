@@ -112,8 +112,10 @@ struct QuadEntry{
 };
 
 struct QuadList{
-    int next_instr;
     int width;
+    UnionType* type;
+
+    int next_instr;
     vector<QuadEntry> quads;
 
     void emit(Opcode o, string result, string arg1, string arg2);
@@ -177,6 +179,11 @@ struct SymbolTable{
 
     SymbolTableEntry* lookup(string);
     SymbolTableEntry* gentemp(UnionType);
+};
+
+struct DeclarationType{
+    int width;
+    UnionType* type;
 };
 
 extern SymbolTable *global_st, *current_st;

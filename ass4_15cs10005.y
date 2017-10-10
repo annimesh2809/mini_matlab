@@ -18,6 +18,7 @@ extern int yylex(void);
     char char_val;
     string* id_type;
     ExpressionType* exp_type;
+    DeclarationType* decl_type;
     vector<ExpressionType*>* args_type;
     List* list;
 }
@@ -37,6 +38,7 @@ extern int yylex(void);
                 cast-expression multiplicative-expression additive-expression shift-expression relational-expression equality-expression
                 AND-expression exclusive-OR-expression inclusive-OR-expression logical-AND-expression logical-OR-expression
                 conditional-expression
+%type <decl_type> declaration-list declaration-list-opt type-specifier declaration-specifiers declaration-specifiers-opt
 %type <args_type> argument-expression-list argument-expression-list-opt
 
 %start expression
@@ -660,13 +662,14 @@ assigment-expression:
     if(!typecheck($1,$3,false,true)){
         cout<<"Error: Assignment failed due to incompatible types";
     }
-    if($1->is_matrix)
+    if($1->is_matrix){
         quad.emit(Opcode::IND_COPY_L, $1->parent_matrix->name, $1->loc->name, $3->loc->name);
+    }
     else if($1->is_ptr)
         quad.emit(Opcode::DEREF_L, $1->loc->name, $3->loc->name);
     else
         quad.emit(Opcode::ASS, $1->loc->name, $3->loc->name);
-    $$ = new ExpressionType(*$1);
+    $$ = new ExpressionType(*$3);
     $$->is_matrix = $$->is_ptr = false;
 }
 ;
@@ -689,21 +692,28 @@ declaration:
 ;
 
 init-declarator-list-opt:
-  init-declarator-list  { printf("init-declarator-list-opt --> init-declarator-list\n"); }
-| %empty  { printf("init-declarator-list-opt --> %%empty\n"); }
+  init-declarator-list  { $$ = $1; }
+| %empty  { $$ = new DeclarationType(); }
 ;
 
 declaration-specifiers:
-  type-specifier declaration-specifiers-opt    { printf("declaration-specifiers --> type-specifier declaration-specifiers-opt\n"); }
+  type-specifier declaration-specifiers-opt    {
+      $$->type = $1->type;
+      $$->width = $1->width;
+      quad.width = $1->width;
+      quad.type = $1->type;
+  }
 ;
 
 declaration-specifiers-opt:
-  declaration-specifiers  { printf("declaration-specifiers-opt --> declaration-specifiers\n"); }
-| %empty   { printf("declaration-specifiers-opt --> %%empty\n"); }
+  declaration-specifiers  { $$ = $1; }
+| %empty   { $$ = new DeclarationType(); }
 ;
 
 init-declarator-list:
-  init-declarator    { printf("init-declarator-list --> init-declarator\n"); }
+  init-declarator    {
+      
+  }
 | init-declarator-list ',' init-declarator    { printf("init-declarator-list --> init-declarator-list, init-declarator\n"); }
 ;
 
@@ -713,17 +723,35 @@ init-declarator:
 ;
 
 type-specifier:
-  VOID    { printf("type-specifier --> void\n"); }
+  VOID    {
+      $$->type = new UnionType(BasicType::VOID);
+      $$->width = SZ_VOID;
+  }
 | CHAR    { printf("type-specifier --> char\n"); }
-| SHORT    { printf("type-specifier --> short\n"); }
-| INT    { printf("type-specifier --> int\n"); }
-| LONG    { printf("type-specifier --> long\n"); }
-| FLOAT    { printf("type-specifier --> float\n"); }
-| DOUBLE    { printf("type-specifier --> double\n"); }
-| MATRIX    { printf("type-specifier --> Matrix\n"); }
-| SIGNED    { printf("type-specifier --> signed\n"); }
-| UNSIGNED    { printf("type-specifier --> unsigned\n"); }
-| BOOL    { printf("type-specifier --> Bool\n"); }
+| SHORT    { // NOT SUPPORTED
+}
+| INT    {
+    $$->type = new UnionType(BasicType::INT);
+    $$->width = SZ_INT;
+}
+| LONG    { // NOT SUPPORTED
+}
+| FLOAT    { // NOT SUPPORTED
+}
+| DOUBLE    {
+    $$->type = new UnionType(BasicType::DOUBLE);
+    $$_>width = SZ_DOUBLE;
+}
+| MATRIX    {
+    $$->type = new UnionType(BasicType::MATRIX);
+    $$->width = SZ_MATRIX;
+ }
+| SIGNED    { // NOT SUPPORTED
+ }
+| UNSIGNED    { // NOT SUPPORTED
+}
+| BOOL    { // NOT SUPPORTED
+}
 ;
 
 declarator:
