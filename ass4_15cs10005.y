@@ -37,11 +37,12 @@ extern int yylex(void);
 %type <exp_type> expression primary-expression postfix-expression unary-expression assigment-expression assigment-expression-opt
                 cast-expression multiplicative-expression additive-expression shift-expression relational-expression equality-expression
                 AND-expression exclusive-OR-expression inclusive-OR-expression logical-AND-expression logical-OR-expression
-                conditional-expression
+                conditional-expression constant-expression init-declarator-list-opt init-declarator-list direct-declarator declarator
+                identifier-list-opt identifier-list initializer init-declarator
 %type <decl_type> declaration-list declaration-list-opt type-specifier declaration-specifiers declaration-specifiers-opt
 %type <args_type> argument-expression-list argument-expression-list-opt
 
-%start expression
+%start prog
 
 %%
 
@@ -684,7 +685,7 @@ expression:
 ;
 
 constant-expression:
-  conditional-expression    { /* NOT SUPPORTED */ }
+  conditional-expression    { $$ = $1; }
 ;
 
 declaration:
@@ -693,7 +694,7 @@ declaration:
 
 init-declarator-list-opt:
   init-declarator-list  { $$ = $1; }
-| %empty  { $$ = new DeclarationType(); }
+| %empty  { $$ = new ExpressionType(); }
 ;
 
 declaration-specifiers:
@@ -712,18 +713,28 @@ declaration-specifiers-opt:
 
 init-declarator-list:
   init-declarator    {
-      
+
   }
 | init-declarator-list ',' init-declarator    { printf("init-declarator-list --> init-declarator-list, init-declarator\n"); }
 ;
 
 init-declarator:
   declarator    { printf("init-declarator --> declarator\n"); }
-| declarator '=' initializer    { printf("init-declarator --> declarator = initializer\n"); }
+| declarator '=' initializer    {
+    if(!typecheck($1,$3,false,true)){
+        printf("Error: cannot initialise\n");
+        exit(1);
+    }
+    if($3->loc->was_initialised)
+        current_st->update($1->loc, $3->loc->init);
+    quad.emit(Opcode::ASS, $1->loc->name, $3->loc->name);
+    $$ = $1;
+}
 ;
 
 type-specifier:
   VOID    {
+      $$ = new DeclarationType();
       $$->type = new UnionType(BasicType::VOID);
       $$->width = SZ_VOID;
   }
@@ -731,6 +742,7 @@ type-specifier:
 | SHORT    { // NOT SUPPORTED
 }
 | INT    {
+    $$ = new DeclarationType();
     $$->type = new UnionType(BasicType::INT);
     $$->width = SZ_INT;
 }
@@ -739,10 +751,12 @@ type-specifier:
 | FLOAT    { // NOT SUPPORTED
 }
 | DOUBLE    {
+    $$ = new DeclarationType();
     $$->type = new UnionType(BasicType::DOUBLE);
-    $$_>width = SZ_DOUBLE;
+    $$->width = SZ_DOUBLE;
 }
 | MATRIX    {
+    $$ = new DeclarationType();
     $$->type = new UnionType(BasicType::MATRIX);
     $$->width = SZ_MATRIX;
  }
@@ -755,34 +769,58 @@ type-specifier:
 ;
 
 declarator:
-  pointer-opt direct-declarator    { printf("declarator --> pointer-opt direct-declarator\n"); }
+  pointer-opt direct-declarator    { $$ = $2; }
 ;
 
 pointer-opt:
-  pointer  { printf("pointer-opt --> pointer\n"); }
+  pointer  {}
 | %empty  { printf("pointer-opt --> %%empty\n"); }
 ;
 
 direct-declarator:
-  IDENTIFIER    { printf("direct-declarator --> Identifier\n"); }
-| '(' declarator ')'    { printf("direct-declarator --> (declarator)\n"); }
-| direct-declarator '[' assigment-expression-opt ']'    { printf("direct-declarator --> direct-declarator [assigment-expression-opt]\n"); }
-| direct-declarator '(' parameter-type-list ')'    { printf("direct-declarator --> direct-declarator (parameter-type-list)\n"); }
-| direct-declarator '(' identifier-list-opt ')'    { printf("direct-declarator --> direct-declarator (identifier-list-opt)\n"); }
+  IDENTIFIER    {
+      $$ = new ExpressionType();
+      $$->loc = current_st->lookup(*$1);
+      current_st->update($$->loc, *quad.type, quad.width);
+      $$->type = $$->loc->type;
+  }
+| '(' declarator ')'    { $$ = $2; }
+| IDENTIFIER '[' INT_CONSTANT ']' '[' INT_CONSTANT ']'   {
+    $$ = new ExpressionType();
+    $$->loc = current_st->lookup(*$1);
+    if(quad.type->type != BasicType::MATRIX){
+        cout<<"Type of "<<(*$1)<<" must be Matrix\n";
+        exit(1);
+    }
+    UnionType u(BasicType::MATRIX, $3, $6);
+    current_st->update($$->loc, u, u.size);
+    $$->type = $$->loc->type;
+}
+| direct-declarator '(' parameter-type-list ')'    { // NOT SUPPORTED
+}
+| direct-declarator '(' identifier-list-opt ')'    { // NOT SUPPORTED
+}
 ;
 
 assigment-expression-opt:
-  assigment-expression  { printf("assigment-expression-opt --> assigment-expression\n"); }
-| %empty  { printf("assigment-expression-opt --> %%empty\n"); }
+  assigment-expression  { $$ = $1; }
+| %empty  { $$ = new ExpressionType(); }
 ;
 
 identifier-list-opt:
-  identifier-list  { printf("identifier-list-opt --> identifier-list\n"); }
-| %empty  { printf("identifier-list-opt --> %%empty\n"); }
+  identifier-list  { $$ = $1; }
+| %empty  { $$ = new ExpressionType(); }
 ;
 
 pointer:
-  '*' pointer-opt    { printf("pointer --> * pointer-opt\n"); }
+  '*' pointer-opt    {
+      // Must be changed for functions
+      UnionType* t = new UnionType();
+      t->type = BasicType::PTR;
+      t->size = SZ_PTR;
+      t->next = quad.type;
+      quad.type = t;
+  }
 ;
 
 parameter-type-list:
@@ -800,12 +838,12 @@ parameter-declaration:
 ;
 
 identifier-list:
-  IDENTIFIER    { printf("identifier-list --> Identifier\n"); }
+  IDENTIFIER    { }
 | identifier-list ',' IDENTIFIER    { printf("identifier-list --> identifier-list, Identifier\n"); }
 ;
 
 initializer:
-  assigment-expression    { printf("initializer --> assigment-expression\n"); }
+  assigment-expression    { $$ = $1; }
 | '{' initializer-row-list '}'    { printf("initializer --> { initializer-row-list }\n"); }
 ;
 
