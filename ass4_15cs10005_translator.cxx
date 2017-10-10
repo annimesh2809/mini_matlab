@@ -60,12 +60,21 @@ UnionType::UnionType(BasicType b){
     next = NULL;
 }
 
+// for matrix
+UnionType::UnionType(BasicType b, int h, int w){
+    this->type = b;
+    this->h = h;
+    this->w = w;
+    size = h*w*SZ_DOUBLE + 2*SZ_INT;
+    next = NULL;
+}
+
 void UnionType::print(){
     switch (this->type) {
         case BasicType::CHAR: cout<<"char"; return;
         case BasicType::INT: cout<<"int"; return;
         case BasicType::DOUBLE: cout<<"double"; return;
-        case BasicType::MATRIX: cout<<"Matrix"; return;
+        case BasicType::MATRIX: cout<<"Matrix("<<this->h<<","<<this->w<<")"; return;
         case BasicType::VOID: cout<<"void"; return;
         case BasicType::PTR: cout<<"pointer"; return;
         case BasicType::FUNC: cout<<"function"; return;
@@ -106,7 +115,7 @@ void print_init_val(UnionInitialVal& init, BasicType b){
         case BasicType::INT: cout<<init.int_val; break;
         case BasicType::DOUBLE: cout<<init.double_val; break;
         case BasicType::CHAR: cout<<init.char_val; break;
-        case BasicType::MATRIX: cout<<'{'; for(int i=0;i<init.Matrix_val.val->size()-1;i++) cout<<(init.Matrix_val.val->operator[](i))<<','; cout<<init.Matrix_val.val->operator[](init.Matrix_val.val->size()-1)<<'}'; break;
+        case BasicType::MATRIX: cout<<'{'; for(int i=0;i<init.Matrix_val->size()-1;i++) cout<<(init.Matrix_val->operator[](i))<<','; cout<<init.Matrix_val->operator[](init.Matrix_val->size()-1)<<'}'; break;
     }
 }
 
@@ -114,7 +123,10 @@ void SymbolTableEntry::print(){
     printf("%s\t\t", this->name.c_str());
     this->type.print();
     printf("\t\t");
-//    print_init_val(this->init, this->type.type);cout<<endl;
+    if(this->was_initialised)
+        print_init_val(this->init, this->type.type);
+    else
+        printf("-\t");
     printf("\t\t%d\t\t%d\t\t%s", this->size, this->offset, ((this->nested_table==NULL)?("NULL"):(this->nested_table->name.c_str())));
 }
 
@@ -172,7 +184,11 @@ void SymbolTable::update(SymbolTableEntry* s, UnionType u, int sz){
 SymbolTableEntry* SymbolTable::gentemp(UnionType u){
     SymbolTableEntry* s = new SymbolTableEntry("t" + to_string(temp_count++));
     s->type = u;
-    int cursz = get_size(u.type);
+    int cursz;
+    if(u.type == BasicType::MATRIX)
+        cursz = u.h*u.w*SZ_DOUBLE + 2*SZ_INT;
+    else
+        cursz = get_size(u.type);
     s->size = cursz;
     s->offset = offset;
     offset += cursz;
@@ -185,6 +201,10 @@ QuadEntry::QuadEntry(Opcode o, string _result, string s1, string s2){
     result = _result;
     arg1 = s1;
     arg2 = s2;
+}
+
+void QuadEntry::backpatch(int addr){
+    this->result = to_string(addr);
 }
 
 void QuadEntry::print(ostream& f){
@@ -246,6 +266,42 @@ void QuadEntry::print(ostream& f){
         case Opcode::CONV_DOUBLE:
             f<<result<<"=(double)"<<arg1;
             break;
+        case Opcode::L_SHIFT:
+            f<<result<<"="<<arg1<<"<<"<<arg2;
+            break;
+        case Opcode::R_SHIFT:
+            f<<result<<"="<<arg1<<">>"<<arg2;
+            break;
+        case Opcode::IF_LT:
+            f<<"if "<<arg1<<"<"<<arg2<<" goto "<<result;
+            break;
+        case Opcode::IF_GT:
+            f<<"if "<<arg1<<">"<<arg2<<" goto "<<result;
+            break;
+        case Opcode::IF_LTE:
+            f<<"if "<<arg1<<"<="<<arg2<<" goto "<<result;
+            break;
+        case Opcode::IF_GTE:
+            f<<"if "<<arg1<<">="<<arg2<<" goto "<<result;
+            break;
+        case Opcode::IF_EQ:
+            f<<"if "<<arg1<<"=="<<arg2<<" goto "<<result;
+            break;
+        case Opcode::IF_NEQ:
+            f<<"if "<<arg1<<"!="<<arg2<<" goto "<<result;
+            break;
+        case Opcode::GOTO:
+            f<<"goto "<<result;
+            break;
+        case Opcode::BIT_AND:
+            f<<result<<"="<<arg1<<" & "<<arg2;
+            break;
+        case Opcode::BIT_INC_OR:
+            f<<result<<"="<<arg1<<" | "<<arg2;
+            break;
+        case Opcode::BIT_EXC_OR:
+            f<<result<<"="<<arg1<<" ^ "<<arg2;
+            break;
     }
 }
 
@@ -268,6 +324,7 @@ void QuadList::emit(Opcode o, string result){
 
 void QuadList::print(ostream& f = cout){
     for(int i=0;i<quads.size();i++){
+        cout<<i<<"\t";
         quads[i].print(f);
         cout<<"\n";
     }
@@ -345,13 +402,13 @@ bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
     if(t1->type.type == t2->type.type){
         if(t1->type.type == BasicType::MATRIX){
             if(mat_mul){
-                if(t1->loc->init.Matrix_val.c == t2->loc->init.Matrix_val.r){
+                if(t1->type.w == t2->type.h){
                     return true;
                 }
-                cout<<"Error: Multiplication of incompatible matrices\n";
+                cout<<t1->type.w<<" "<<t2->type.h<<"Error: Multiplication of incompatible matrices\n";
                 return false;
             }
-            if(t1->loc->init.Matrix_val.r == t2->loc->init.Matrix_val.r && t1->loc->init.Matrix_val.c == t2->loc->init.Matrix_val.c){
+            if(t1->type.h == t2->type.h && t1->type.w == t2->type.w){
                 return true;
             }
             return false;
@@ -371,13 +428,45 @@ bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
     return true;
 }
 
+void backpatch(List* &p, int addr){
+    if(p != NULL && p->head != NULL){
+        node *t = p->head;
+        while(t != NULL){
+            quad.quads[t->ind].backpatch(addr);
+            t = t->next;
+        }
+        p->clear();
+        p = NULL;
+    }
+}
+
+List* makelist(){
+    return new List();
+}
+
+List* makelist(int ind){
+    return new List(ind);
+}
+
+List* merge(List* l1, List* l2){
+    if(l1 == NULL || l1->head == NULL) return l2;
+    if(l2 == NULL || l2->head == NULL) return l1;
+    l1->tail->next = l2->head;
+    l1->tail = l2->tail;
+    return l1;
+}
+
 int main(int argc, char const *argv[]) {
+    quad.next_instr = 0;
     SymbolTableEntry* a = current_st->lookup("a");
-    current_st->update(a, UnionType(BasicType::MATRIX), 32 + 8);
+    UnionType umat;
+    umat.type = BasicType::MATRIX;
+    umat.h = 2;
+    umat.w = 1;
+    umat.next = NULL;
+    current_st->update(a, umat, 2*1*8 + 2*4);
     UnionInitialVal u;
-    u.Matrix_val.val = new vector<double>({1.0, 2.0, 2.0, 1.0});
-    u.Matrix_val.r = 2;
-    u.Matrix_val.c = 3;
+    u.Matrix_val = new vector<double>({1.0, 2.0, 2.0, 1.0});
     current_st->update(a, u);
     SymbolTableEntry* b = current_st->lookup("b");
     current_st->update(b, UnionType(BasicType::INT), 4);

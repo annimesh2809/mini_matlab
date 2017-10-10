@@ -19,6 +19,7 @@ extern int yylex(void);
     string* id_type;
     ExpressionType* exp_type;
     vector<ExpressionType*>* args_type;
+    List* list;
 }
 
 %token UNSIGNED BREAK RETURN VOID CASE FLOAT SHORT CHAR FOR SIGNED WHILE GOTO BOOL CONTINUE IF DEFAULT DO INT SWITCH DOUBLE LONG ELSE MATRIX
@@ -29,9 +30,13 @@ extern int yylex(void);
 %token <double_val> DOUBLE_CONSTANT
 %token ARROW PLUSPLUS MINUSMINUS LEFT_SHIFT RIGHT_SHIFT LESS_EQUAL GREATER_EQUAL IS_EQUAL IS_NOT_EQUAL LOGICAL_AND LOGICAL_OR MUL_EQUAL DIV_EQUAL MOD_EQUAL ADD_EQUAL SUB_EQUAL LEFT_SHIFT_EQUAL RIGHT_SHIFT_EQUAL AND_EQUAL XOR_EQUAL OR_EQUAL TRANSPOSE
 
+%type <int_val> N
+%type <list> M
 %type <char_val> unary-operator
 %type <exp_type> expression primary-expression postfix-expression unary-expression assigment-expression assigment-expression-opt
-                cast-expression multiplicative-expression additive-expression
+                cast-expression multiplicative-expression additive-expression shift-expression relational-expression equality-expression
+                AND-expression exclusive-OR-expression inclusive-OR-expression logical-AND-expression logical-OR-expression
+                conditional-expression
 %type <args_type> argument-expression-list argument-expression-list-opt
 
 %start expression
@@ -106,7 +111,7 @@ postfix-expression:
                                             $$->type = UnionType(BasicType::DOUBLE);
                                             $$->is_matrix = true;
                                             $$->parent_matrix = $1->loc;
-                                            quad.emit(Opcode::MUL, $$->loc->name, $3->loc->name, to_string($1->loc->init.Matrix_val.c));
+                                            quad.emit(Opcode::MUL, $$->loc->name, $3->loc->name, to_string($1->type.w));
                                             quad.emit(Opcode::ADD, $$->loc->name, $$->loc->name, $6->loc->name);
                                             quad.emit(Opcode::MUL, $$->loc->name, $$->loc->name, "8");
                                         }
@@ -164,16 +169,10 @@ postfix-expression:
     if($1->type.type != BasicType::MATRIX){
         cout<<"Error: Transpose can be taken of only Matrices\n";
     }
+    UnionType u(BasicType::MATRIX, $1->type.w, $1->type.h);
     $$ = new ExpressionType(*$1);
-    $$->loc = current_st->gentemp(UnionType(BasicType::MATRIX));
-    $$->loc->size = $1->loc->size;
-    $$->loc->type = $1->loc->type;
-    $$->type = $1->type;
-    $$->loc->init = $1->loc->init;
-    $$->loc->was_initialised = $1->loc->was_initialised;
-    $$->loc->init.Matrix_val.r = $1->loc->init.Matrix_val.c;
-    $$->loc->init.Matrix_val.c = $1->loc->init.Matrix_val.r;
-    current_st->update($$->loc, $$->type, $$->loc->size);
+    $$->loc = current_st->gentemp(u);
+    $$->type = $$->loc->type;
     quad.emit(Opcode::TRANS, $$->loc->name, $1->loc->name);
 }
 ;
@@ -327,10 +326,17 @@ multiplicative-expression:
         cout<<"Error: implicit type conversion failed\n";
         exit(1);
     }
-    $$->loc = current_st->gentemp($1->type);
-    $$->type = $$->loc->type;
-    quad.emit(Opcode::MUL, $$->loc->name, $1->loc->name, $3->loc->name);
-
+    if($1->type.type == BasicType::MATRIX){
+        UnionType u(BasicType::MATRIX, $1->type.h, $3->type.w);
+        $$->loc = current_st->gentemp(u);
+        $$->type = $$->loc->type;
+        quad.emit(Opcode::MUL, $$->loc->name, $1->loc->name, $3->loc->name);
+    }
+    else{
+        $$->loc = current_st->gentemp($1->type);
+        $$->type = $$->loc->type;
+        quad.emit(Opcode::MUL, $$->loc->name, $1->loc->name, $3->loc->name);
+    }
 }
 | multiplicative-expression '/' cast-expression {
     $$ = new ExpressionType();
@@ -352,7 +358,10 @@ multiplicative-expression:
         cout<<"Error: modulus can be taken of integers only\n";
         exit(1);
     }
-    typecheck($1,$3);
+    if($1->type.type != BasicType::INT)
+        conv2int($1);
+    if($3->type.type != BasicType::INT)
+        conv2int($3);
     $$->loc = current_st->gentemp($1->type);
     $$->type = $$->loc->type;
     quad.emit(Opcode::MOD, $$->loc->name, $1->loc->name, $3->loc->name);
@@ -384,53 +393,220 @@ additive-expression:
 ;
 
 shift-expression:
-  additive-expression  { printf("shift-expression --> additive-expression\n"); }
-| shift-expression LEFT_SHIFT additive-expression  { printf("shift-expression --> shift-expression << additive-expression\n"); }
-| shift-expression RIGHT_SHIFT additive-expression  { printf("shift-expression --> shift-expression >> additive-expression\n"); }
+  additive-expression  { $$ = $1; }
+| shift-expression LEFT_SHIFT additive-expression  {
+    $$ = new ExpressionType();
+    if((int)$1->type.type >= 3 || (int)$3->type.type >= 3){
+        cout<<"Error: left shift is allowed only for integers\n";
+        exit(1);
+    }
+    if($1->type.type != BasicType::INT)
+        conv2int($1);
+    if($3->type.type != BasicType::INT)
+        conv2int($3);
+    $$->loc = current_st->gentemp($1->type);
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::L_SHIFT, $$->loc->name, $1->loc->name, $3->loc->name);
+}
+| shift-expression RIGHT_SHIFT additive-expression  {
+    $$ = new ExpressionType();
+    if((int)$1->type.type >= 3 || (int)$3->type.type >= 3){
+        cout<<"Error: left shift is allowed only for integers\n";
+        exit(1);
+    }
+    if($1->type.type != BasicType::INT)
+        conv2int($1);
+    if($3->type.type != BasicType::INT)
+        conv2int($3);
+    $$->loc = current_st->gentemp($1->type);
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::R_SHIFT, $$->loc->name, $1->loc->name, $3->loc->name);
+}
 ;
 
 relational-expression:
-  shift-expression    { printf("relational-expression --> shift-expression\n"); }
-| relational-expression '<' shift-expression    { printf("relational-expression --> relational-expression < shift-expression\n"); }
-| relational-expression '>' shift-expression    { printf("relational-expression --> relational-expression > shift-expression\n"); }
-| relational-expression LESS_EQUAL shift-expression    { printf("relational-expression --> relational-expression <= shift-expression\n"); }
-| relational-expression GREATER_EQUAL shift-expression    { printf("relational-expression --> relational-expression >= shift-expression\n"); }
+  shift-expression    { $$ = $1; }
+| relational-expression '<' shift-expression    {
+    if((int)$1->type.type > 3 || (int)$3->type.type > 3){
+        cout<<"Error: invalid operands for <\n";
+        exit(1);
+    }
+    typecheck($1,$3);
+    $$->truelist = makelist(quad.next_instr);
+    quad.emit(Opcode::IF_LT, "", $1->loc->name, $3->loc->name);
+    $$->falselist = makelist(quad.next_instr);
+    quad.emit(Opcode::GOTO, "");
+}
+| relational-expression '>' shift-expression    {
+    if((int)$1->type.type > 3 || (int)$3->type.type > 3){
+        cout<<"Error: invalid operands for >\n";
+        exit(1);
+    }
+    typecheck($1,$3);
+    $$->truelist = makelist(quad.next_instr);
+    quad.emit(Opcode::IF_GT, "", $1->loc->name, $3->loc->name);
+    $$->falselist = makelist(quad.next_instr);
+    quad.emit(Opcode::GOTO, "");
+}
+| relational-expression LESS_EQUAL shift-expression    {
+    if((int)$1->type.type > 3 || (int)$3->type.type > 3){
+        cout<<"Error: invalid operands for <=\n";
+        exit(1);
+    }
+    typecheck($1,$3);
+    $$ = new ExpressionType();
+    $$->type = UnionType(BasicType::BOOL);
+    $$->truelist = makelist(quad.next_instr);
+    quad.emit(Opcode::IF_LTE, "", $1->loc->name, $3->loc->name);
+    $$->falselist = makelist(quad.next_instr);
+    quad.emit(Opcode::GOTO, "");
+}
+| relational-expression GREATER_EQUAL shift-expression    {
+    if((int)$1->type.type > 3 || (int)$3->type.type > 3){
+        cout<<"Error: invalid operands for >=\n";
+        exit(1);
+    }
+    typecheck($1,$3);
+    $$ = new ExpressionType();
+    $$->type = UnionType(BasicType::BOOL);
+    $$->truelist = makelist(quad.next_instr);
+    quad.emit(Opcode::IF_GTE, "", $1->loc->name, $3->loc->name);
+    $$->falselist = makelist(quad.next_instr);
+    quad.emit(Opcode::GOTO, "");
+}
 ;
 
 equality-expression:
-  relational-expression      { printf("equality-expression --> relational-expression\n"); }
-| equality-expression IS_EQUAL relational-expression      { printf("equality-expression --> equality-expression == relational-expression\n"); }
-| equality-expression IS_NOT_EQUAL relational-expression      { printf("equality-expression --> equality-expression != relational-expression\n"); }
+  relational-expression      { $$ = $1; }
+| equality-expression IS_EQUAL relational-expression      {
+    typecheck($1,$3);
+    $$ = new ExpressionType();
+    $$->type = UnionType(BasicType::BOOL);
+    $$->truelist = makelist(quad.next_instr);
+    quad.emit(Opcode::IF_EQ, "", $1->loc->name, $3->loc->name);
+    $$->falselist = makelist(quad.next_instr);
+    quad.emit(Opcode::GOTO, "");
+}
+| equality-expression IS_NOT_EQUAL relational-expression      {
+    typecheck($1,$3);
+    $$ = new ExpressionType();
+    $$->type = UnionType(BasicType::BOOL);
+    $$->truelist = makelist(quad.next_instr);
+    quad.emit(Opcode::IF_NEQ, "", $1->loc->name, $3->loc->name);
+    $$->falselist = makelist(quad.next_instr);
+    quad.emit(Opcode::GOTO, "");
+}
 ;
 
 AND-expression:
-  equality-expression    { printf("AND-expression --> equality-expression\n"); }
-| AND-expression '&' equality-expression    { printf("AND-expression --> AND-expression & equality-expression\n"); }
+  equality-expression    { $$ = $1; }
+| AND-expression '&' equality-expression    {
+    $$ = new ExpressionType();
+    if((int)$1->type.type >= 3 || (int)$3->type.type >= 3){
+        cout<<"Error: invalid operands for &\n";
+        exit(1);
+    }
+    if($1->type.type != BasicType::INT)
+        conv2int($1);
+    if($3->type.type != BasicType::INT)
+        conv2int($3);
+    $$->loc = current_st->gentemp(UnionType(BasicType::INT));
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::BIT_AND, $$->loc->name, $1->loc->name, $3->loc->name);
+}
 ;
 
 exclusive-OR-expression:
-  AND-expression    { printf("exclusive-OR-expression --> AND-expression\n"); }
-| exclusive-OR-expression '^' AND-expression  { printf("exclusive-OR-expression --> exclusive-OR-expression ^ AND-expression\n"); }
+  AND-expression    { $$ = $1; }
+| exclusive-OR-expression '^' AND-expression  {
+    $$ = new ExpressionType();
+    if((int)$1->type.type >= 3 || (int)$3->type.type >= 3){
+        cout<<"Error: invalid operands for ^\n";
+        exit(1);
+    }
+    if($1->type.type != BasicType::INT)
+        conv2int($1);
+    if($3->type.type != BasicType::INT)
+        conv2int($3);
+    $$->loc = current_st->gentemp(UnionType(BasicType::INT));
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::BIT_EXC_OR, $$->loc->name, $1->loc->name, $3->loc->name);
+}
 ;
 
 inclusive-OR-expression:
-  exclusive-OR-expression    { printf("inclusive-OR-expression --> exclusive-OR-expression\n"); }
-| inclusive-OR-expression '|' exclusive-OR-expression    { printf("inclusive-OR-expression --> inclusive-OR-expression | exclusive-OR-expression\n"); }
+  exclusive-OR-expression    { $$ = $1; }
+| inclusive-OR-expression '|' exclusive-OR-expression    {
+    $$ = new ExpressionType();
+    if((int)$1->type.type >= 3 || (int)$3->type.type >= 3){
+        cout<<"Error: invalid operands for |\n";
+        exit(1);
+    }
+    if($1->type.type != BasicType::INT)
+        conv2int($1);
+    if($3->type.type != BasicType::INT)
+        conv2int($3);
+    $$->loc = current_st->gentemp(UnionType(BasicType::INT));
+    $$->type = $$->loc->type;
+    quad.emit(Opcode::BIT_INC_OR, $$->loc->name, $1->loc->name, $3->loc->name);
+}
+;
+
+N:  /* empty */ {
+    $$ = quad.next_instr;
+}
 ;
 
 logical-AND-expression:
-  inclusive-OR-expression    { printf("logical-AND-expression --> inclusive-OR-expression\n"); }
-| logical-AND-expression LOGICAL_AND inclusive-OR-expression    { printf("logical-AND-expression --> logical-AND-expression && inclusive-OR-expression\n"); }
+  inclusive-OR-expression    { $$ = $1; }
+| logical-AND-expression LOGICAL_AND N inclusive-OR-expression    {
+    backpatch($1->truelist, $3);
+    $$ = new ExpressionType();
+    $$->type = UnionType(BasicType::BOOL);
+    $$->truelist = $4->truelist;
+    $$->falselist = merge($1->falselist, $4->falselist);
+}
 ;
 
 logical-OR-expression:
-  logical-AND-expression    { printf("logical-OR-expression --> logical-AND-expression\n"); }
-| logical-OR-expression LOGICAL_OR logical-AND-expression    { printf("logical-OR-expression --> logical-OR-expression || logical-AND-expression\n"); }
+  logical-AND-expression    { $$ = $1; }
+| logical-OR-expression LOGICAL_OR N logical-AND-expression    {
+    backpatch($1->falselist, $3);
+    $$ = new ExpressionType();
+    $$->type = UnionType(BasicType::BOOL);
+    $$->falselist = $4->falselist;
+    $$->truelist = merge($1->truelist, $4->truelist);
+}
 ;
 
+M: /*empty*/ {
+    $$ = makelist(quad.next_instr);
+    quad.emit(Opcode::GOTO, "");
+}
+
 conditional-expression:
-  logical-OR-expression    { printf("conditional-expression --> logical-OR-expression\n"); }
-| logical-OR-expression '?' expression ':' conditional-expression    { printf("conditional-expression --> logical-OR-expression ? expression : conditional-expression\n"); }
+  logical-OR-expression    { $$ = $1; }
+| logical-OR-expression M '?' N expression M ':' N conditional-expression    {
+    if(!typecheck($5,$9)){
+        cout<<"Error: expressions mut have same type in conditional operator\n";
+        exit(1);
+    }
+    $$ = new ExpressionType();
+    $$->loc = current_st->gentemp($5->type);
+    if($1->type.type == BasicType::BOOL){
+        quad.emit(Opcode::ASS, $$->loc->name, $9->loc->name);
+        List * l = makelist(quad.next_instr);
+        quad.emit(Opcode::GOTO, "");
+        backpatch($6, quad.next_instr);
+        quad.emit(Opcode::ASS, $$->loc->name, $5->loc->name);
+        l = merge(l, makelist(quad.next_instr));
+         quad.emit(Opcode::GOTO, "");
+         backpatch($1->truelist, $4);
+         backpatch($1->falselist, $8);
+         backpatch($2, quad.next_instr);
+         backpatch(l, quad.next_instr);
+    }
+}
 ;
 
 assigment-expression:

@@ -36,7 +36,20 @@ enum class Opcode{
     CONV_BOOL,
     CONV_CHAR,
     CONV_INT,
-    CONV_DOUBLE
+    CONV_DOUBLE,
+    L_SHIFT,
+    R_SHIFT,
+    IF_LT,
+    IF_GT,
+    IF_LTE,
+    IF_GTE,
+    IF_EQ,
+    IF_NEQ,
+    GOTO,
+    BIT_AND,
+    BIT_INC_OR,
+    BIT_EXC_OR,
+    BIT_NOT
 };
 
 enum class BasicType{
@@ -63,7 +76,6 @@ struct node{
 };
 
 struct List{
-    int ind;
     node* head;
     node* tail;
 
@@ -77,13 +89,14 @@ struct List{
 struct UnionType{
     BasicType type;
     int size;
+    int h, w;
     UnionType* next;
 
     UnionType();
     UnionType(BasicType);
+    UnionType(BasicType, int, int);
 
     void print();
-
 };
 
 bool are_equal(UnionType t1, UnionType t2);
@@ -94,6 +107,7 @@ struct QuadEntry{
 
     QuadEntry(Opcode op, string result, string s1, string s2 = "");
 
+    void backpatch(int);
     void print(ostream& f);
 };
 
@@ -121,16 +135,11 @@ struct ExpressionType{
     ExpressionType(ExpressionType& e);
 };
 
-struct MatInit{
-    vector<double>* val;
-    int r, c;
-};
-
 union UnionInitialVal{
     int int_val;
     double double_val;
     char char_val;
-    MatInit Matrix_val;
+    vector<double>* Matrix_val;
 };
 
 struct SymbolTable;
@@ -173,6 +182,12 @@ struct SymbolTable{
 extern SymbolTable *global_st, *current_st;
 extern QuadList quad;
 
+List* makelist();
+List* makelist(int);
+List* merge(List*, List*);
+void conv2int(ExpressionType*);
 bool check_params(ExpressionType* fn, vector<ExpressionType*>* args);
 bool typecheck(ExpressionType*, ExpressionType*, bool b1 = false, bool b2 = false);
+void backpatch(List*&, int);
+
 #endif
