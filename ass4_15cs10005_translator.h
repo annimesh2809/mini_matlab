@@ -114,6 +114,7 @@ struct QuadEntry{
 struct QuadList{
     int width;
     UnionType* type;
+    SymbolTableEntry* mat;
 
     int next_instr;
     vector<QuadEntry> quads;
@@ -193,6 +194,7 @@ List* makelist();
 List* makelist(int);
 List* merge(List*, List*);
 void conv2int(ExpressionType*);
+void conv2double(ExpressionType*);
 bool check_params(ExpressionType* fn, vector<ExpressionType*>* args);
 bool typecheck(ExpressionType*, ExpressionType*, bool b1 = false, bool b2 = false);
 void backpatch(List*&, int);

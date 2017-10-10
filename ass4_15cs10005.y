@@ -40,7 +40,7 @@ extern int yylex(void);
                 conditional-expression constant-expression init-declarator-list-opt init-declarator-list direct-declarator declarator
                 identifier-list-opt identifier-list initializer init-declarator
 %type <decl_type> declaration-list declaration-list-opt type-specifier declaration-specifiers declaration-specifiers-opt
-%type <args_type> argument-expression-list argument-expression-list-opt
+%type <args_type> argument-expression-list argument-expression-list-opt initializer-row initializer-row-list
 
 %start prog
 
@@ -721,14 +721,16 @@ init-declarator-list:
 init-declarator:
   declarator    { printf("init-declarator --> declarator\n"); }
 | declarator '=' initializer    {
-    if(!typecheck($1,$3,false,true)){
-        printf("Error: cannot initialise\n");
-        exit(1);
+    if($1->type.type != BasicType::MATRIX){
+        if(!typecheck($1,$3,false,true)){
+            printf("Error: cannot initialise\n");
+            exit(1);
+        }
+        if($3->loc->was_initialised)
+            current_st->update($1->loc, $3->loc->init);
+        quad.emit(Opcode::ASS, $1->loc->name, $3->loc->name);
+        $$ = $1;
     }
-    if($3->loc->was_initialised)
-        current_st->update($1->loc, $3->loc->init);
-    quad.emit(Opcode::ASS, $1->loc->name, $3->loc->name);
-    $$ = $1;
 }
 ;
 
@@ -795,6 +797,9 @@ direct-declarator:
     UnionType u(BasicType::MATRIX, $3, $6);
     current_st->update($$->loc, u, u.size);
     $$->type = $$->loc->type;
+    quad.type->h = $3;
+    quad.type->w = $6;
+    quad.mat = $$->loc;
 }
 | direct-declarator '(' parameter-type-list ')'    { // NOT SUPPORTED
 }
@@ -844,17 +849,63 @@ identifier-list:
 
 initializer:
   assigment-expression    { $$ = $1; }
-| '{' initializer-row-list '}'    { printf("initializer --> { initializer-row-list }\n"); }
+| '{' initializer-row-list '}'    {
+    if(((signed)$2->size())/quad.type->w != quad.type->h){
+        cout<<"Error: initialized row size does not match size of matrix\n";
+        exit(1);
+    }
+    bool was_initialised = true;
+    for(int i=0;i<$2->size();i++){
+        if(!$2->operator[](i)->loc->was_initialised){
+            was_initialised = false;
+            break;
+        }
+    }
+    if(was_initialised){
+        quad.mat->was_initialised = true;
+        quad.mat->init.Matrix_val = new vector<double>();
+        for(int i=0;i<$2->size();i++)
+            quad.mat->init.Matrix_val->push_back($2->operator[](i)->loc->init.double_val);
+    }
+    for(int i=0;i<$2->size();i++){
+        quad.emit(Opcode::IND_COPY_L, quad.mat->name, to_string(i), $2->operator[](i)->loc->name);
+    }
+}
 ;
 
 initializer-row-list:
-  initializer-row    { printf("initializer-row-list --> initializer-row\n"); }
-| initializer-row-list ';' initializer-row    { printf("initializer-row-list --> initializer-row-list; initializer-row\n"); }
+  initializer-row    {
+      $$ = $1;
+  }
+| initializer-row-list ';' initializer-row    {
+    if($3->size() != quad.type->w){
+        cout<<"Error: initialized column size does not match size of matrix\n";
+        exit(1);
+    }
+    $1->insert($1->end(), $3->begin(), $3->end());
+    $$ = $1;
+}
 ;
 
 initializer-row:
-  designation-opt initializer    { printf("initializer-row --> designation-opt initializer\n"); }
-| initializer-row ',' designation-opt initializer    { printf("initializer-row --> initializer-row, designation-opt initializer\n"); }
+  designation-opt initializer    { $$ = new vector<ExpressionType*>();
+                                    if((int)$2->loc->type.type > (int)BasicType::DOUBLE){
+                                        cout<<"Error: initialisation failed!\n";
+                                        exit(1);
+                                    }
+                                    if($2->loc->type.type != BasicType::DOUBLE)
+                                        conv2double($2);
+                                    $$->push_back($2);
+                                }
+| initializer-row ',' designation-opt initializer    {
+    if((int)$4->loc->type.type > (int)BasicType::DOUBLE){
+        cout<<"Error: initialisation failed!\n";
+        exit(1);
+    }
+    if($4->loc->type.type != BasicType::DOUBLE)
+        conv2double($4);
+    $1->push_back($4); $$ = $1;
+}
 ;
 
 designation-opt:
