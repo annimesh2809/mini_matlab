@@ -82,6 +82,7 @@ Matrix { return MATRIX; }
 {single-punctuator} { return *yytext; }
 {identifier}            {   yylval.id_type = new string(yytext); return IDENTIFIER; }
 {integer-constant}      {   yylval.int_val = atoi(yytext);  return INT_CONSTANT;   }
+{zero-constant}         {   yylval.int_val = 0; return INT_CONSTANT; }
 {floating-constant}     {   yylval.double_val = atof(yytext);   return DOUBLE_CONSTANT; }
 {character-constant}    {   yylval.char_val = yytext[1]; return CHAR_CONSTANT; }
 {string-literal}        {   yylval.string_val = new string(yytext); return STRING_LITERAL;  }

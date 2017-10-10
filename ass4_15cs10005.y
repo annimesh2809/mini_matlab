@@ -168,6 +168,7 @@ postfix-expression:
 | postfix-expression TRANSPOSE {
     if($1->type.type != BasicType::MATRIX){
         cout<<"Error: Transpose can be taken of only Matrices\n";
+        exit(1);
     }
     UnionType u(BasicType::MATRIX, $1->type.w, $1->type.h);
     $$ = new ExpressionType(*$1);
@@ -229,8 +230,10 @@ unary-expression:
             u.next = &($2->type);
             $$->loc = current_st->gentemp(u);
             $$->type = $$->loc->type;
-            if($2->is_matrix)
+            if($2->is_matrix){
                 quad.emit(Opcode::ADD, $$->loc->name, $2->parent_matrix->name, $2->loc->name);
+                $$->is_matrix = false;
+            }
             else
                 quad.emit(Opcode::ADDRESS, $$->loc->name, $2->loc->name);
             break;
@@ -301,27 +304,41 @@ unary-operator:
 cast-expression:
     unary-expression {
         $$ = new ExpressionType(*$1);
-        if($1->is_matrix){
-            $$->is_matrix = false;
-            $$->loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
-            $$->type = $$->loc->type;
-            quad.emit(Opcode::IND_COPY_R, $$->loc->name, $1->parent_matrix->name, $1->loc->name);
-        }
-        else if($1->is_ptr){
-            $$->is_ptr = false;
-            $$->loc = current_st->gentemp($1->type);
-            $$->type = $$->loc->type;
-            quad.emit(Opcode::DEREF_R, $$->loc->name, $1->loc->name);
-        }
     }
 ;
 
 multiplicative-expression:
   cast-expression {
       $$ = new ExpressionType(*$1);
+      if($1->is_matrix){
+          $$->is_matrix = false;
+          $$->loc = current_st->gentemp(UnionType(BasicType::DOUBLE));
+          $$->type = $$->loc->type;
+          quad.emit(Opcode::IND_COPY_R, $$->loc->name, $1->parent_matrix->name, $1->loc->name);
+      }
+      else if($1->is_ptr){
+          $$->is_ptr = false;
+          $$->loc = current_st->gentemp($1->type);
+          $$->type = $$->loc->type;
+          quad.emit(Opcode::DEREF_R, $$->loc->name, $1->loc->name);
+      }
   }
 | multiplicative-expression '*' cast-expression {
     $$ = new ExpressionType();
+    if($3->is_matrix){
+        $3->is_matrix = false;
+        SymbolTableEntry* t = current_st->gentemp(UnionType(BasicType::DOUBLE));
+        quad.emit(Opcode::IND_COPY_R, t->name, $3->parent_matrix->name, $3->loc->name);
+        $3->loc = t;
+        $3->type = $3->loc->type;
+    }
+    else if($3->is_ptr){
+        $3->is_ptr = false;
+        SymbolTableEntry* t = current_st->gentemp($3->type);
+        quad.emit(Opcode::DEREF_R, t->name, $3->loc->name);
+        $3->loc = t;
+        $3->type = $3->loc->type;
+    }
     if(!typecheck($1,$3,true)){
         cout<<"Error: implicit type conversion failed\n";
         exit(1);
@@ -340,6 +357,20 @@ multiplicative-expression:
 }
 | multiplicative-expression '/' cast-expression {
     $$ = new ExpressionType();
+    if($3->is_matrix){
+        $3->is_matrix = false;
+        SymbolTableEntry* t = current_st->gentemp(UnionType(BasicType::DOUBLE));
+        quad.emit(Opcode::IND_COPY_R, t->name, $3->parent_matrix->name, $3->loc->name);
+        $3->loc = t;
+        $3->type = $3->loc->type;
+    }
+    else if($3->is_ptr){
+        $3->is_ptr = false;
+        SymbolTableEntry* t = current_st->gentemp($3->type);
+        quad.emit(Opcode::DEREF_R, t->name, $3->loc->name);
+        $3->loc = t;
+        $3->type = $3->loc->type;
+    }
     if(!typecheck($1,$3)){
         cout<<"Error: implicit type conversion failed in /\n";
         exit(1);
@@ -354,6 +385,20 @@ multiplicative-expression:
 }
 | multiplicative-expression '%' cast-expression {
     $$ = new ExpressionType();
+    if($3->is_matrix){
+        $3->is_matrix = false;
+        SymbolTableEntry* t = current_st->gentemp(UnionType(BasicType::DOUBLE));
+        quad.emit(Opcode::IND_COPY_R, t->name, $3->parent_matrix->name, $3->loc->name);
+        $3->loc = t;
+        $3->type = $3->loc->type;
+    }
+    else if($3->is_ptr){
+        $3->is_ptr = false;
+        SymbolTableEntry* t = current_st->gentemp($3->type);
+        quad.emit(Opcode::DEREF_R, t->name, $3->loc->name);
+        $3->loc = t;
+        $3->type = $3->loc->type;
+    }
     if((int)$1->type.type > 2 || (int)$3->type.type > 2){
         cout<<"Error: modulus can be taken of integers only\n";
         exit(1);
@@ -600,31 +645,43 @@ conditional-expression:
         backpatch($6, quad.next_instr);
         quad.emit(Opcode::ASS, $$->loc->name, $5->loc->name);
         l = merge(l, makelist(quad.next_instr));
-         quad.emit(Opcode::GOTO, "");
-         backpatch($1->truelist, $4);
-         backpatch($1->falselist, $8);
-         backpatch($2, quad.next_instr);
-         backpatch(l, quad.next_instr);
+        quad.emit(Opcode::GOTO, "");
+        backpatch($1->truelist, $4);
+        backpatch($1->falselist, $8);
+        backpatch($2, quad.next_instr);
+        backpatch(l, quad.next_instr);
     }
 }
 ;
 
 assigment-expression:
-  conditional-expression    { printf("assigment-expression --> conditional-expression\n"); }
-| unary-expression assignment-operator assigment-expression    { printf("assigment-expression --> unary-expression assignment-operator assigment-expression\n"); }
+  conditional-expression    { $$ = $1; }
+| unary-expression assignment-operator assigment-expression    {
+    if(!typecheck($1,$3,false,true)){
+        cout<<"Error: Assignment failed due to incompatible types";
+    }
+    if($1->is_matrix)
+        quad.emit(Opcode::IND_COPY_L, $1->parent_matrix->name, $1->loc->name, $3->loc->name);
+    else if($1->is_ptr)
+        quad.emit(Opcode::DEREF_L, $1->loc->name, $3->loc->name);
+    else
+        quad.emit(Opcode::ASS, $1->loc->name, $3->loc->name);
+    $$ = new ExpressionType(*$1);
+    $$->is_matrix = $$->is_ptr = false;
+}
 ;
 
 assignment-operator:
-  '='    { printf("assignment-operator --> =\n"); }
+  '='    { }
 ;
 
 expression:
-  assigment-expression      { printf("expression --> assigment-expression\n"); }
-| expression ',' assigment-expression   { printf("expression --> expression, assigment-expression\n"); }
+  assigment-expression      { $$ = $1; }
+| expression ',' assigment-expression   { /* NOT SUPPORTED */ }
 ;
 
 constant-expression:
-  conditional-expression    { printf("constant-expression --> conditional-expression\n"); }
+  conditional-expression    { /* NOT SUPPORTED */ }
 ;
 
 declaration:

@@ -398,7 +398,6 @@ void conv(BasicType b, ExpressionType* t){
 }
 
 bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
-    if((int)t1->type.type > 4 || (int)t2->type.type > 4) return false;
     if(t1->type.type == t2->type.type){
         if(t1->type.type == BasicType::MATRIX){
             if(mat_mul){
@@ -415,8 +414,7 @@ bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
         }
         return true;
     }
-    if(t1->type.type == BasicType::MATRIX || t2->type.type == BasicType::MATRIX)
-        return false;
+    if((int)t1->type.type > 4 || (int)t2->type.type > 4) return false;
     if(rtl){
         if((int)t2->type.type > (int)t1->type.type)
             conv(t1->type.type,t2);
@@ -429,6 +427,9 @@ bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
 }
 
 void backpatch(List* &p, int addr){
+    cout<<"******************\n";
+    p->print();
+    cout<<"\n"<<addr<<"******************\n";
     if(p != NULL && p->head != NULL){
         node *t = p->head;
         while(t != NULL){
