@@ -42,7 +42,7 @@ extern int yylex(void);
 %type <decl_type> declaration-list declaration-list-opt type-specifier declaration-specifiers declaration-specifiers-opt
 %type <args_type> argument-expression-list argument-expression-list-opt initializer-row initializer-row-list
 
-%start prog
+%start statement
 
 %%
 
@@ -480,10 +480,12 @@ relational-expression:
         exit(1);
     }
     typecheck($1,$3);
+    $$ = new ExpressionType();
     $$->truelist = makelist(quad.next_instr);
     quad.emit(Opcode::IF_LT, "", $1->loc->name, $3->loc->name);
     $$->falselist = makelist(quad.next_instr);
     quad.emit(Opcode::GOTO, "");
+    $$->type = UnionType(BasicType::BOOL);
 }
 | relational-expression '>' shift-expression    {
     if((int)$1->type.type > 3 || (int)$3->type.type > 3){
@@ -491,10 +493,12 @@ relational-expression:
         exit(1);
     }
     typecheck($1,$3);
+    $$ = new ExpressionType();
     $$->truelist = makelist(quad.next_instr);
     quad.emit(Opcode::IF_GT, "", $1->loc->name, $3->loc->name);
     $$->falselist = makelist(quad.next_instr);
     quad.emit(Opcode::GOTO, "");
+    $$->type = UnionType(BasicType::BOOL);
 }
 | relational-expression LESS_EQUAL shift-expression    {
     if((int)$1->type.type > 3 || (int)$3->type.type > 3){
@@ -636,11 +640,12 @@ conditional-expression:
   logical-OR-expression    { $$ = $1; }
 | logical-OR-expression M '?' N expression M ':' N conditional-expression    {
     if(!typecheck($5,$9)){
-        cout<<"Error: expressions mut have same type in conditional operator\n";
+        cout<<"Error: expressions must have same type in conditional operator\n";
         exit(1);
     }
     $$ = new ExpressionType();
     $$->loc = current_st->gentemp($5->type);
+    $$->type = $$->loc->type;
     if($1->type.type == BasicType::BOOL){
         quad.emit(Opcode::ASS, $$->loc->name, $9->loc->name);
         List * l = makelist(quad.next_instr);
@@ -829,17 +834,17 @@ pointer:
 ;
 
 parameter-type-list:
-  parameter-list    { printf("parameter-type-list --> parameter-list\n"); }
+  parameter-list    {}
 ;
 
 parameter-list:
-  parameter-declaration    { printf("parameter-list --> parameter-declaration\n"); }
-| parameter-list ',' parameter-declaration    { printf("parameter-list --> parameter-list, parameter-declaration\n"); }
+  parameter-declaration    {}
+| parameter-list ',' parameter-declaration    {}
 ;
 
 parameter-declaration:
-  declaration-specifiers declarator    { printf("parameter-declaration --> declaration-specifiers declarator\n"); }
-| declaration-specifiers    { printf("parameter-declaration --> declaration-specifiers\n"); }
+  declaration-specifiers declarator    {}
+| declaration-specifiers    {}
 ;
 
 identifier-list:
@@ -909,26 +914,28 @@ initializer-row:
 ;
 
 designation-opt:
-  designation  { printf("designation-opt --> designation\n"); }
-| %empty  { printf("designation-opt --> %%empty\n"); }
+  designation  {}
+| %empty  {}
 ;
 
 designation:
-  designator-list '='    { printf("designation --> designator-list =\n"); }
+  designator-list '='    {}
 ;
 
 designator-list:
-  designator    { printf("designator-list --> designator\n"); }
-| designator-list designator    { printf("designator-list --> designator-list designator\n"); }
+  designator    {}
+| designator-list designator    {}
 ;
 
 designator:
-  '[' constant-expression ']'    { printf("designator --> [ constant-expression ]\n"); }
-| '.' IDENTIFIER    { printf("designator --> . Identifier\n"); }
+  '[' constant-expression ']'    {}
+| '.' IDENTIFIER    {}
 ;
 
 statement:
-  labeled-statement    { printf("statement --> labeled-statement\n"); }
+  labeled-statement    {
+      // NOT SUPPORTED
+  }
 | compound-statement    { printf("statement --> compound-statement\n"); }
 | expression-statement    { printf("statement --> expression-statement\n"); }
 | selection-statement    { printf("statement --> selection-statement\n"); }
@@ -937,9 +944,15 @@ statement:
 ;
 
 labeled-statement:
-  IDENTIFIER ':' statement    { printf("labeled-statement --> Identifier : statement\n"); }
-| CASE constant-expression ':' statement    { printf("labeled-statement --> case constant-expression : statement\n"); }
-| DEFAULT ':' statement    { printf("labeled-statement --> default : statement\n"); }
+  IDENTIFIER ':' statement    {
+      // NOT SUPPORTED
+  }
+| CASE constant-expression ':' statement    {
+    // NOT SUPPORTED
+}
+| DEFAULT ':' statement    {
+    // NOT SUPPORTED
+}
 ;
 
 compound-statement:
@@ -971,9 +984,15 @@ expression-opt:
 ;
 
 selection-statement:
-  IF '(' expression ')' statement    { printf("selection-statement --> if ( expression ) statement\n"); }
+  IF '(' expression M ')' N statement    {
+      // only for boolean expressions
+      backpatch($3->truelist, $6);
+      backpatch($3->falselist, quad.next_instr);
+      backpatch($4, quad.next_instr);
+  }
 | IF '(' expression ')' statement ELSE statement    { printf("selection-statement --> if ( expression ) statement else statement\n"); }
-| SWITCH '(' expression ')' statement    { printf("iteration-statement --> switch ( expression ) statement\n"); }
+| SWITCH '(' expression ')' statement    { // NOT SUPPORTED
+}
 ;
 
 iteration-statement:
@@ -984,10 +1003,18 @@ iteration-statement:
 ;
 
 jump-statement:
-  GOTO IDENTIFIER ';'    { printf("jump-statement --> goto Identifier;\n"); }
-| CONTINUE ';'    { printf("jump-statement --> continue;\n"); }
-| BREAK ';'    { printf("jump-statement --> break;\n"); }
-| RETURN expression-opt ';'    { printf("jump-statement --> return expression-opt;\n"); }
+  GOTO IDENTIFIER ';'    {
+      // NOT SUPPORTED
+  }
+| CONTINUE ';'    {
+    // NOT SUPPORTED
+}
+| BREAK ';'    {
+    // NOT SUPPORTED
+}
+| RETURN expression-opt ';'    {
+
+}
 ;
 
 translation-unit:

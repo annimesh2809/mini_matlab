@@ -426,9 +426,7 @@ bool typecheck(ExpressionType* t1, ExpressionType* t2, bool mat_mul, bool rtl){
 }
 
 void backpatch(List* &p, int addr){
-    cout<<"******************\n";
     p->print();
-    cout<<"\n"<<addr<<"******************\n";
     if(p != NULL && p->head != NULL){
         node *t = p->head;
         while(t != NULL){
