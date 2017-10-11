@@ -456,18 +456,6 @@ List* merge(List* l1, List* l2){
 
 int main(int argc, char const *argv[]) {
     quad.next_instr = 0;
-    SymbolTableEntry* a = current_st->lookup("a");
-    UnionType umat;
-    umat.type = BasicType::MATRIX;
-    umat.h = 2;
-    umat.w = 1;
-    umat.next = NULL;
-    current_st->update(a, umat, 2*1*8 + 2*4);
-    UnionInitialVal u;
-    u.Matrix_val = new vector<double>({1.0, 2.0, 2.0, 1.0});
-    current_st->update(a, u);
-    SymbolTableEntry* b = current_st->lookup("b");
-    current_st->update(b, UnionType(BasicType::INT), 4);
     yyparse();
     cout<<"\n******* SYMBOL TABLE ********\n";
     current_st->print();

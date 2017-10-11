@@ -32,17 +32,17 @@ extern int yylex(void);
 %token ARROW PLUSPLUS MINUSMINUS LEFT_SHIFT RIGHT_SHIFT LESS_EQUAL GREATER_EQUAL IS_EQUAL IS_NOT_EQUAL LOGICAL_AND LOGICAL_OR MUL_EQUAL DIV_EQUAL MOD_EQUAL ADD_EQUAL SUB_EQUAL LEFT_SHIFT_EQUAL RIGHT_SHIFT_EQUAL AND_EQUAL XOR_EQUAL OR_EQUAL TRANSPOSE
 
 %type <int_val> N
-%type <list> M
+%type <list> M selection-statement statement
 %type <char_val> unary-operator
 %type <exp_type> expression primary-expression postfix-expression unary-expression assigment-expression assigment-expression-opt
                 cast-expression multiplicative-expression additive-expression shift-expression relational-expression equality-expression
                 AND-expression exclusive-OR-expression inclusive-OR-expression logical-AND-expression logical-OR-expression
                 conditional-expression constant-expression init-declarator-list-opt init-declarator-list direct-declarator declarator
-                identifier-list-opt identifier-list initializer init-declarator
+                identifier-list-opt identifier-list initializer init-declarator expression-opt
 %type <decl_type> declaration-list declaration-list-opt type-specifier declaration-specifiers declaration-specifiers-opt
 %type <args_type> argument-expression-list argument-expression-list-opt initializer-row initializer-row-list
 
-%start statement
+%start iteration-statement
 
 %%
 
@@ -790,6 +790,8 @@ direct-declarator:
       $$->loc = current_st->lookup(*$1);
       current_st->update($$->loc, *quad.type, quad.width);
       $$->type = $$->loc->type;
+      while(quad.type->next != NULL)
+        quad.type = quad.type->next;
   }
 | '(' declarator ')'    { $$ = $2; }
 | IDENTIFIER '[' INT_CONSTANT ']' '[' INT_CONSTANT ']'   {
@@ -956,7 +958,7 @@ labeled-statement:
 ;
 
 compound-statement:
-  '{' block-item-list-opt '}'    { printf("compound-statement --> { block-item-list-opt }\n"); }
+  '{' block-item-list-opt '}'    {}
 ;
 
 block-item-list-opt:
@@ -984,22 +986,39 @@ expression-opt:
 ;
 
 selection-statement:
-  IF '(' expression M ')' N statement    {
+  IF '(' expression ')' N statement    {
       // only for boolean expressions
-      backpatch($3->truelist, $6);
+      cout<<"********ffefefef\n";
+      backpatch($3->truelist, $5);
       backpatch($3->falselist, quad.next_instr);
-      backpatch($4, quad.next_instr);
   }
-| IF '(' expression ')' statement ELSE statement    { printf("selection-statement --> if ( expression ) statement else statement\n"); }
+| IF '(' expression ')' N statement M ELSE N statement    {
+    backpatch($3->truelist, $5);
+    backpatch($3->falselist, $9);
+    backpatch($7, quad.next_instr);
+}
 | SWITCH '(' expression ')' statement    { // NOT SUPPORTED
 }
 ;
 
 iteration-statement:
-  WHILE '(' expression ')' statement    { printf("iteration-statement --> while ( expression ) statement\n"); }
-| DO statement WHILE '(' expression ')' ';'    { printf("iteration-statement --> do statement while ( expression );\n"); }
-| FOR '(' expression-opt ';' expression-opt ';' expression-opt ')' statement    { printf("iteration-statement --> for ( expression-opt; expression-opt; expression-opt ) statement\n"); }
-| FOR '(' declaration expression-opt ';' expression-opt ')' statement    { printf("iteration-statement --> for ( declaration expression-opt; expression-opt) statement\n"); }
+  WHILE '(' N expression ')' N statement    {
+      backpatch($4->truelist, $6);
+      quad.emit(Opcode::GOTO, to_string($3));
+      backpatch($4->falselist, quad.next_instr);
+  }
+| DO N statement WHILE '(' expression ')' ';'    {
+    backpatch($6->truelist, $2);
+    backpatch($6->falselist, quad.next_instr);
+}
+| FOR '(' expression-opt ';' N expression-opt ';' N expression-opt M ')' N statement M   {
+    backpatch($6->truelist, $12);
+    backpatch($6->falselist, quad.next_instr);
+    backpatch($10, $5);
+    backpatch($14, $8);
+}
+| FOR '(' declaration expression-opt ';' expression-opt ')' statement    { //NOT SUPPORTED
+ }
 ;
 
 jump-statement:
