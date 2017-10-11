@@ -31,7 +31,7 @@ extern int yylex(void);
 %token <double_val> DOUBLE_CONSTANT
 %token ARROW PLUSPLUS MINUSMINUS LEFT_SHIFT RIGHT_SHIFT LESS_EQUAL GREATER_EQUAL IS_EQUAL IS_NOT_EQUAL LOGICAL_AND LOGICAL_OR MUL_EQUAL DIV_EQUAL MOD_EQUAL ADD_EQUAL SUB_EQUAL LEFT_SHIFT_EQUAL RIGHT_SHIFT_EQUAL AND_EQUAL XOR_EQUAL OR_EQUAL TRANSPOSE
 
-%type <int_val> N
+%type <int_val> N parameter-list parameter-type-list parameter-declaration
 %type <list> M selection-statement statement
 %type <char_val> unary-operator
 %type <exp_type> expression primary-expression postfix-expression unary-expression assigment-expression assigment-expression-opt
@@ -50,18 +50,26 @@ prog:
   translation-unit { printf("Parsing successful\n"); }
 ;
 
+FN: declaration-specifiers {
+    quad.is_function = true;
+}
+;
+
 primary-expression:
     IDENTIFIER          {
                             $$ = new ExpressionType();
-                            if(global_st->is_present(*$1))
+                            if(global_st->is_present(*$1)){
                                 $$->loc = global_st->lookup(*$1);
-                            else if(current_st->is_present(*$1))
+                                $$->type = $$->loc->type;
+                            }
+                            else if(current_st->is_present(*$1)){
                                 $$->loc = current_st->lookup(*$1);
+                                $$->type = $$->loc->type;
+                            }
                             else{
                                 cout<<*$1<<" used before declaration\n";
                                 exit(1);
                             }
-                            $$->type = $$->loc->type;
                             $$->truelist = $$->falselist = NULL;
                         }
     | INT_CONSTANT      {
@@ -119,20 +127,15 @@ postfix-expression:
                                             quad.emit(Opcode::MUL, $$->loc->name, $$->loc->name, "8");
                                         }
 | postfix-expression '(' argument-expression-list-opt ')'  {
-    $$ = $1;
-    if(!check_params($1, $3)){
-        cout << "Function arguments mismatch";
-        exit(1);
+    $$ = new ExpressionType(*$1);
+    check_params($1, $3);
+    for(int i=0; i < (int)$3->size(); i++){
+        quad.emit(Opcode::PARAM, $3->operator[](i)->loc->name);
     }
-    else{
-        for(int i=(int)$3->size()-1; i>=0; i--){
-            quad.emit(Opcode::PARAM, $3->operator[](i)->loc->name);
-        }
-        $$->loc = current_st->gentemp($1->loc->nested_table->entries[0]->type);
-        $$->type = $$->loc->type;
-        $$->truelist = $$->falselist = NULL;
-        quad.emit(Opcode::CALL, $$->loc->name, $1->loc->name, to_string((int)$3->size()));
-    }
+    $$->loc = current_st->gentemp($1->loc->nested_table->type);
+    $$->type = $$->loc->type;
+    $$->truelist = $$->falselist = NULL;
+    quad.emit(Opcode::CALL, $$->loc->name, $1->loc->nested_table->name, to_string((int)$3->size()));
 }
 | postfix-expression '.' IDENTIFIER { // NOT SUPPORTED
     }
@@ -705,7 +708,7 @@ constant-expression:
 ;
 
 declaration:
-  declaration-specifiers init-declarator-list-opt ';'    { printf("declaration --> declaration-specifiers init-declarator-list-opt;\n"); }
+  declaration-specifiers init-declarator-list-opt ';'    {}
 ;
 
 init-declarator-list-opt:
@@ -731,11 +734,11 @@ init-declarator-list:
   init-declarator    {
 
   }
-| init-declarator-list ',' init-declarator    { printf("init-declarator-list --> init-declarator-list, init-declarator\n"); }
+| init-declarator-list ',' init-declarator    {}
 ;
 
 init-declarator:
-  declarator    { printf("init-declarator --> declarator\n"); }
+  declarator    {}
 | declarator '=' initializer    {
     if($1->type.type != BasicType::MATRIX){
         if(!typecheck($1,$3,false,true)){
@@ -756,7 +759,7 @@ type-specifier:
       $$->type = new UnionType(BasicType::VOID);
       $$->width = SZ_VOID;
   }
-| CHAR    { printf("type-specifier --> char\n"); }
+| CHAR    {}
 | SHORT    { // NOT SUPPORTED
 }
 | INT    {
@@ -792,19 +795,19 @@ declarator:
 
 pointer-opt:
   pointer  {}
-| %empty  { printf("pointer-opt --> %%empty\n"); }
+| %empty  {}
 ;
 
 direct-declarator:
   IDENTIFIER    {
       if(quad.is_function){
+          quad.emit(Opcode::LABEL, *$1);
           $$ = new ExpressionType();
           $$->loc = global_st->lookup(*$1);
           global_st->update($$->loc, UnionType(BasicType::FUNC), 0);
           $$->type = $$->loc->type;
-          current_st = new SymbolTable();
+          current_st = new SymbolTable(*$1, global_st);
           $$->loc->nested_table = current_st;
-          current_st->parent = global_st;
           current_st->type = *quad.type;
           quad.is_function = false;
       }
@@ -832,7 +835,8 @@ direct-declarator:
     quad.type->w = $6;
     quad.mat = $$->loc;
 }
-| direct-declarator '(' parameter-type-list ')'    { // NOT SUPPORTED
+| direct-declarator '(' parameter-type-list ')'    {
+    $1->loc->nested_table->n_params = $3;
 }
 | direct-declarator '(' identifier-list-opt ')'    { // NOT SUPPORTED
 }
@@ -860,22 +864,29 @@ pointer:
 ;
 
 parameter-type-list:
-  parameter-list    {}
+  parameter-list    { $$ = $1; }
 ;
 
 parameter-list:
-  parameter-declaration    {}
-| parameter-list ',' parameter-declaration    {}
+  parameter-declaration    {
+      $$ = 1;
+  }
+| parameter-list ',' parameter-declaration    {
+    $$ = $$ + 1;
+}
 ;
 
 parameter-declaration:
-  declaration-specifiers declarator    {}
-| declaration-specifiers    {}
+  declaration-specifiers declarator    {
+      $$ = 1;
+  }
+| declaration-specifiers    {
+}
 ;
 
 identifier-list:
   IDENTIFIER    { }
-| identifier-list ',' IDENTIFIER    { printf("identifier-list --> identifier-list, Identifier\n"); }
+| identifier-list ',' IDENTIFIER    {}
 ;
 
 initializer:
@@ -986,33 +997,32 @@ compound-statement:
 ;
 
 block-item-list-opt:
-  block-item-list  { printf("block-item-list-opt --> block-item-list\n"); }
-| %empty  { printf("block-item-list-opt --> %%empty\n"); }
+  block-item-list  {}
+| %empty  {}
 ;
 
 block-item-list:
-  block-item    { printf("block-item-list --> block-item\n"); }
-| block-item-list block-item    { printf("block-item-list --> block-item-list block-item\n"); }
+  block-item    {}
+| block-item-list block-item    {}
 ;
 
 block-item:
-  declaration    { printf("block-item --> declaration\n"); }
-| statement    { printf("block-item --> statement\n"); }
+  declaration    {}
+| statement    {}
 ;
 
 expression-statement:
-  expression-opt ';'    { printf("expression-statement --> expression-opt;\n"); }
+  expression-opt ';'    {}
 ;
 
 expression-opt:
-  expression  { printf("expression-opt --> expression\n"); }
-| %empty  { printf("expression-opt --> %%empty\n"); }
+  expression  {}
+| %empty  {}
 ;
 
 selection-statement:
   IF '(' expression ')' N statement    {
       // only for boolean expressions
-      cout<<"********ffefefef\n";
       backpatch($3->truelist, $5);
       backpatch($3->falselist, quad.next_instr);
   }
@@ -1056,32 +1066,29 @@ jump-statement:
     // NOT SUPPORTED
 }
 | RETURN expression-opt ';'    {
-
+    ExpressionType e;
+    e.type = current_st->type;
+    if(!typecheck(&e, $2, false, true)){
+        cout<<"Error: incorrect return type\n";
+        exit(1);
+    }
+    quad.emit(Opcode::RET, $2->loc->name);
 }
 ;
 
 translation-unit:
-  external-declaration    { printf("translation-unit --> external-declaration\n"); }
-| translation-unit external-declaration    { printf("translation-unit --> translation-unit external-declaration\n"); }
+  external-declaration    {}
+| translation-unit external-declaration    {}
 ;
 
 external-declaration:
-  function-definition    { printf("external-declaration --> function-definition\n"); }
-| declaration    { printf("external-declaration --> declaration\n"); }
-;
-
-FN: %empty {
-    quad.is_function = true;
-}
+  function-definition    {}
 ;
 
 function-definition:
-  declaration-specifiers FN declarator declaration-list-opt compound-statement    {
+  FN declarator declaration-list-opt compound-statement    {
       if(current_st->type.type == BasicType::VOID){
           quad.emit(Opcode::RET_V);
-      }
-      else{
-          quad.emit(Opcode::RET, current_st->entries[0]->name);
       }
   }
 ;

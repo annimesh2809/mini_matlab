@@ -51,7 +51,8 @@ enum class Opcode{
     BIT_EXC_OR,
     BIT_NOT,
     RET_V,
-    RET
+    RET,
+    LABEL
 };
 
 enum class BasicType{
@@ -172,8 +173,8 @@ struct SymbolTable{
     vector <SymbolTableEntry*> entries;
     SymbolTable* parent;
     int offset;
-    int temp_count;
     UnionType type;
+    int n_params;
 
     SymbolTable(SymbolTable* p = NULL);
     SymbolTable(string, SymbolTable*);
@@ -194,6 +195,7 @@ struct DeclarationType{
 
 extern SymbolTable *global_st, *current_st;
 extern QuadList quad;
+extern int temp_count;
 
 List* makelist();
 List* makelist(int);

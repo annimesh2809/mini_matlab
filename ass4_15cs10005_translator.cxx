@@ -2,8 +2,10 @@
 #include "ass4_15cs10005.tab.h"
 #include <assert.h>
 
-SymbolTable *global_st = new SymbolTable();
+SymbolTable *global_st = new SymbolTable("Global:", NULL);
 SymbolTable *current_st = new SymbolTable();
+
+int temp_count = 0;
 
 node::node() { next = NULL; }
 node::node(int i) { ind = i; next = NULL; }
@@ -134,23 +136,22 @@ SymbolTable::SymbolTable(SymbolTable* p){
     name = "";
     parent = p;
     offset = 0;
-    temp_count = 0;
 }
 
 SymbolTable::SymbolTable(string s, SymbolTable* p = NULL){
     name = s;
     parent = p;
     offset = 0;
-    temp_count = 0;
 }
 
 void SymbolTable::print(){
-    cout<<this->name<<"\n";
+    cout<<this->name<<":\n";
     cout<<"Name\t\tType\t\tInitial value\t\tSize\t\tOffset\t\tNested table\n";
     for(int i=0;i<entries.size();i++){
         entries[i]->print();
-        cout<<endl;
+        cout<<"\n";
     }
+    cout<<"\n\n";
 }
 
 SymbolTableEntry* SymbolTable::lookup(string s){
@@ -308,6 +309,9 @@ void QuadEntry::print(ostream& f){
         case Opcode::RET:
             f<<"return "<<result;
             break;
+        case Opcode::LABEL:
+            f<<result<<":";
+            break;
     }
 }
 
@@ -346,16 +350,19 @@ bool check_params(ExpressionType* fn, vector<ExpressionType*>* args){
         exit(1);
     }
     vector<SymbolTableEntry*> &fargs = fn->loc->nested_table->entries;
-    vector<SymbolTableEntry*>::iterator it1 = fargs.begin();
-    vector<ExpressionType*>::iterator it2 = args->begin();
-    while(it1!=fargs.end() && it2!=args->end() && (*it1)->is_param){
-        if((*it2)->loc->type.type != (*it1)->type.type)
-            return false;
-        it1++;
-        it2++;
+    int n_params = fn->loc->nested_table->n_params;
+    if(n_params != args->size()){
+        cout<<"Error: incorrect number of parameters passed\n";
+        exit(1);
     }
-    if((*it1)->is_param || it2 != args->end())
-        return false;
+    for(int i=0;i<n_params;i++){
+        ExpressionType e;
+        e.type = fn->loc->nested_table->entries[i]->type;
+        if(!typecheck(&e, args->operator[](i), false, true)){
+            cout<<"Error: parameter type mismatch\n";
+            exit(1);
+        }
+    }
     return true;
 }
 
