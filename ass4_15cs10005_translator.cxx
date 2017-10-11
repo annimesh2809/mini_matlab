@@ -302,6 +302,12 @@ void QuadEntry::print(ostream& f){
         case Opcode::BIT_EXC_OR:
             f<<result<<"="<<arg1<<" ^ "<<arg2;
             break;
+        case Opcode::RET_V:
+            f<<"return";
+            break;
+        case Opcode::RET:
+            f<<"return "<<result;
+            break;
     }
 }
 
@@ -320,6 +326,10 @@ void QuadList::emit(string result, string s1){
 
 void QuadList::emit(Opcode o, string result){
     emit(o, result, "");
+}
+
+void QuadList::emit(Opcode o){
+    emit(o, "");
 }
 
 void QuadList::print(ostream& f = cout){
@@ -458,7 +468,12 @@ int main(int argc, char const *argv[]) {
     quad.next_instr = 0;
     yyparse();
     cout<<"\n******* SYMBOL TABLE ********\n";
-    current_st->print();
+    global_st->print();
+    for(int i=0;i<global_st->entries.size();i++){
+        if(global_st->entries[i]->nested_table != NULL){
+            global_st->entries[i]->nested_table->print();
+        }
+    }
     cout<<"\n******** QUAD TABLE *********\n";
     quad.print(cout);
     return 0;

@@ -38,11 +38,11 @@ extern int yylex(void);
                 cast-expression multiplicative-expression additive-expression shift-expression relational-expression equality-expression
                 AND-expression exclusive-OR-expression inclusive-OR-expression logical-AND-expression logical-OR-expression
                 conditional-expression constant-expression init-declarator-list-opt init-declarator-list direct-declarator declarator
-                identifier-list-opt identifier-list initializer init-declarator expression-opt
+                identifier-list-opt identifier-list initializer init-declarator expression-opt declaration
 %type <decl_type> declaration-list declaration-list-opt type-specifier declaration-specifiers declaration-specifiers-opt
 %type <args_type> argument-expression-list argument-expression-list-opt initializer-row initializer-row-list
 
-%start iteration-statement
+%start prog
 
 %%
 
@@ -604,7 +604,7 @@ inclusive-OR-expression:
 }
 ;
 
-N:  /* empty */ {
+N:  %empty {
     $$ = quad.next_instr;
 }
 ;
@@ -631,10 +631,11 @@ logical-OR-expression:
 }
 ;
 
-M: /*empty*/ {
+M: %empty {
     $$ = makelist(quad.next_instr);
     quad.emit(Opcode::GOTO, "");
 }
+;
 
 conditional-expression:
   logical-OR-expression    { $$ = $1; }
@@ -682,6 +683,16 @@ assigment-expression:
 
 assignment-operator:
   '='    { }
+| MUL_EQUAL {}
+| DIV_EQUAL {}
+| MOD_EQUAL {}
+| ADD_EQUAL {}
+| SUB_EQUAL {}
+| LEFT_SHIFT_EQUAL {}
+| RIGHT_SHIFT_EQUAL {}
+| AND_EQUAL {}
+| OR_EQUAL {}
+| XOR_EQUAL {}
 ;
 
 expression:
@@ -786,10 +797,23 @@ pointer-opt:
 
 direct-declarator:
   IDENTIFIER    {
-      $$ = new ExpressionType();
-      $$->loc = current_st->lookup(*$1);
-      current_st->update($$->loc, *quad.type, quad.width);
-      $$->type = $$->loc->type;
+      if(quad.is_function){
+          $$ = new ExpressionType();
+          $$->loc = global_st->lookup(*$1);
+          global_st->update($$->loc, UnionType(BasicType::FUNC), 0);
+          $$->type = $$->loc->type;
+          current_st = new SymbolTable();
+          $$->loc->nested_table = current_st;
+          current_st->parent = global_st;
+          current_st->type = *quad.type;
+          quad.is_function = false;
+      }
+      else{
+          $$ = new ExpressionType();
+          $$->loc = current_st->lookup(*$1);
+          current_st->update($$->loc, *quad.type, quad.width);
+          $$->type = $$->loc->type;
+      }
       while(quad.type->next != NULL)
         quad.type = quad.type->next;
   }
@@ -938,11 +962,11 @@ statement:
   labeled-statement    {
       // NOT SUPPORTED
   }
-| compound-statement    { printf("statement --> compound-statement\n"); }
-| expression-statement    { printf("statement --> expression-statement\n"); }
-| selection-statement    { printf("statement --> selection-statement\n"); }
-| iteration-statement    { printf("statement --> iteration-statement\n"); }
-| jump-statement    { printf("statement --> jump-statement\n"); }
+| compound-statement    {  }
+| expression-statement    {  }
+| selection-statement    {  }
+| iteration-statement    {  }
+| jump-statement    {  }
 ;
 
 labeled-statement:
@@ -1046,18 +1070,30 @@ external-declaration:
 | declaration    { printf("external-declaration --> declaration\n"); }
 ;
 
+FN: %empty {
+    quad.is_function = true;
+}
+;
+
 function-definition:
-  declaration-specifiers declarator declaration-list-opt compound-statement    { printf("function-definition --> declaration-specifiers declarator declaration-list-opt compound-statement\n"); }
+  declaration-specifiers FN declarator declaration-list-opt compound-statement    {
+      if(current_st->type.type == BasicType::VOID){
+          quad.emit(Opcode::RET_V);
+      }
+      else{
+          quad.emit(Opcode::RET, current_st->entries[0]->name);
+      }
+  }
 ;
 
 declaration-list-opt:
-  declaration-list  { printf("declaration-list-opt --> declaration-list\n"); }
-| %empty  { printf("declaration-list-opt --> %%empty\n"); }
+  declaration-list  {  }
+| %empty  {  }
 ;
 
 declaration-list:
-  declaration    { printf("declaration-list --> declaration\n"); }
-| declaration-list declaration    { printf("declaration-list --> declaration-list declaration\n"); }
+  declaration    {  }
+| declaration-list declaration    {  }
 ;
 
 %%

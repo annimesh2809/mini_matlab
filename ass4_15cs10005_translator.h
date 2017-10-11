@@ -49,7 +49,9 @@ enum class Opcode{
     BIT_AND,
     BIT_INC_OR,
     BIT_EXC_OR,
-    BIT_NOT
+    BIT_NOT,
+    RET_V,
+    RET
 };
 
 enum class BasicType{
@@ -113,6 +115,7 @@ struct QuadEntry{
 
 struct QuadList{
     int width;
+    int is_function;
     UnionType* type;
     SymbolTableEntry* mat;
 
@@ -123,6 +126,7 @@ struct QuadList{
     void emit(Opcode o, string result, string arg1);
     void emit(string result, string arg1);
     void emit(Opcode o, string result);
+    void emit(Opcode o);
     void print();
     void print(ostream& f);
 };
@@ -169,6 +173,7 @@ struct SymbolTable{
     SymbolTable* parent;
     int offset;
     int temp_count;
+    UnionType type;
 
     SymbolTable(SymbolTable* p = NULL);
     SymbolTable(string, SymbolTable*);
